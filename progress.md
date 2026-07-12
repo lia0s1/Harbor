@@ -994,7 +994,9 @@
 
 ### Testing
 
-- 待完成公开历史重写与远端推送后，复核 GitHub `main` 不包含 `website/`，并确认 README 与许可证可访问。
+- GitHub `main` 已重写为新的公开根提交；远端树不包含 `website/`。
+- `https://raw.githubusercontent.com/lia0s1/Harbor/440770e5b34dbe31f30123712e33b6ce62d997cb/website/index.html` 返回 HTTP 404。
+- 固定提交地址的 README 已复核中文、English、日本語锚点和新的产品首页文案；本地 `website/index.html` 仍存在。
 
 ### Notes
 
