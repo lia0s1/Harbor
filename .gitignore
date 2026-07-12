@@ -27,3 +27,5 @@ docs/reference/
 SwiftTerm-local/TerminalApp/
 SwiftTerm-local/.github/
 SwiftTerm-local/.gitmodules
+SwiftTerm-local/Sources/CaptureOutput/
+SwiftTerm-local/Sources/SwiftTerm/Apple/Metal/Shaders.metal

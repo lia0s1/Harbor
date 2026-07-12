@@ -92,7 +92,7 @@ let targets: [Target] = [
 //            .product(name: "Subprocess", package: "swift-subprocess", condition: .when(platforms: [.macOS, .linux]))
 //        ],
         path: "Sources/SwiftTerm",
-        exclude: platformExcludes + ["Mac/README.md", "Apple/Metal/Shaders.metal"],
+        exclude: platformExcludes + ["Mac/README.md"],
         resources: [.copy("Apple/Metal/Shaders.metal.txt")]
 //        swiftSettings: [
 //            .unsafeFlags(["-enforce-exclusivity=none"])
