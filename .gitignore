@@ -22,3 +22,8 @@ progress.md
 docs/website.md
 docs/performance.md
 docs/reference/
+
+# Harbor embeds SwiftTerm as a library; upstream demo apps and CI templates stay out.
+SwiftTerm-local/TerminalApp/
+SwiftTerm-local/.github/
+SwiftTerm-local/.gitmodules
