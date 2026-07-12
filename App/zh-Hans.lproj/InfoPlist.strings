@@ -1,0 +1,6 @@
+/* 简体中文是 Harbor 唯一的本地化语言。
+   这个文件让应用包显式声明 zh-Hans 本地化，配合 CFBundleDevelopmentRegion =
+   zh-Hans，使系统标准菜单（文件/编辑/显示/窗口/帮助、隐藏/退出等）始终以
+   简体中文渲染，与应用自身的中文界面一致。 */
+CFBundleName = "Harbor";
+CFBundleDisplayName = "Harbor";
