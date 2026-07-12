@@ -1,0 +1,16 @@
+.build/
+DerivedData/
+*.xcodeproj
+xcuserdata/
+.DS_Store
+.swiftpm/
+Harbor-notarize.zip
+Harbor-notarized.zip
+Harbor.zip
+Harbor.dmg
+harbor installer.dmg
+# Claude Code local workflow scripts / locks — not part of the app.
+.claude/
+
+# The public product website is deployed separately; keep its source out of this repository.
+website/

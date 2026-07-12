@@ -1,0 +1,73 @@
+name: Harbor
+options:
+  bundleIdPrefix: dev.zero
+  # zh-Hans is the development (source) language: it is also the key language
+  # for the String Catalog (App/Localizable.xcstrings). The app ships both
+  # zh-Hans and en; the active language is chosen live in Settings
+  # (LocalizationManager swizzles Bundle.main to the selected .lproj) so the
+  # whole UI — including the framework-provided 文件/编辑/… menus — follows it.
+  developmentLanguage: zh-Hans
+  # Advertise both shipped localizations so AppKit/SwiftUI's own strings
+  # (standard menus, Undo/Copy/Paste, panel buttons) are available in either.
+  knownRegions:
+    - en
+    - zh-Hans
+    - Base
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+
+packages:
+  HarborKit:
+    path: HarborKit
+  SwiftTerm:
+    path: SwiftTerm-local
+
+targets:
+  Harbor:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    dependencies:
+      - package: HarborKit
+      - package: SwiftTerm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.zero.Harbor
+        SWIFT_VERSION: "5.0"
+        # Surface data-race / isolation issues (MainActor.assumeIsolated,
+        # @unchecked Sendable, cross-queue Process/Pipe access) as WARNINGS.
+        # In Swift 5 language mode these are non-fatal — they give early notice
+        # ahead of a future Swift 6 migration without breaking the build.
+        SWIFT_STRICT_CONCURRENCY: complete
+        # App icon lives in App/Assets.xcassets (regenerate with scripts/make_icon.swift).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_APP_SANDBOX: NO
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        MARKETING_VERSION: "1.1.1"
+        CURRENT_PROJECT_VERSION: "3"
+        COMBINE_HIDPI_IMAGES: YES
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: XXXXXXXXXX
+          PROVISIONING_PROFILE_SPECIFIER: ""
+
+schemes:
+  Harbor:
+    build:
+      targets:
+        Harbor: all
+    run:
+      config: Release
+    archive:
+      config: Release
