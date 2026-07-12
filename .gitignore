@@ -14,3 +14,11 @@ harbor installer.dmg
 
 # The public product website is deployed separately; keep its source out of this repository.
 website/
+
+# Local agent instructions, work logs, and separate-site notes are not release source.
+AGENTS.md
+claude.md
+progress.md
+docs/website.md
+docs/performance.md
+docs/reference/
