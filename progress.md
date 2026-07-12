@@ -1004,3 +1004,19 @@
 - `README.md`：更新开源项目首屏视觉、定位文案和功能总览。
 - `progress.md`：追加本轮隔离官网源码与 README 优化记录。
 - 回滚方式：公开历史重写前的本地分支保存在 `pre-open-source-cleanup` 标签；如需恢复可将该标签强制推回 `main`。官网文件只从 Git 跟踪中移除，保留在本地工作区。
+## 2026-07-12 - Task: 发布 Harbor 安装包到 GitHub Releases
+
+### What was done
+
+- 将 README 中的仓库克隆地址替换为实际公开地址 `lia0s1/Harbor`。
+- 准备将桌面上已验证的 Harbor ZIP 与 DMG 作为 GitHub Release 资产发布，不把二进制安装包提交进源码仓库。
+
+### Testing
+
+- 已确认 `/Users/zero/Desktop/Harbor.zip` 与 `/Users/zero/Desktop/Harbor.dmg` 存在，并记录 SHA-256：ZIP `842eba3ef03804fdd9cfdf153b2ce18470191f484200d7caff8b041eba49984c`，DMG `ddc1392802691ee584f8ab7ae7ce1dce2bbb37a7343706a03038b16d51f53b87`。
+
+### Notes
+
+- `README.md`：三处快速开始命令改为真实 GitHub 地址。
+- `progress.md`：记录安装包发布准备与校验值。
+- 回滚方式：如需撤回公开安装包，在 GitHub Release 页面删除对应 Release；源码仓库不包含 ZIP/DMG 二进制文件。
