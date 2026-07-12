@@ -53,7 +53,7 @@
 ### 快速开始
 
 ```sh
-git clone https://github.com/<your-account>/Harbor.git
+git clone https://github.com/lia0s1/Harbor.git
 cd Harbor
 brew install xcodegen
 ./build.sh open
@@ -93,7 +93,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ### Quick start
 
 ```sh
-git clone https://github.com/<your-account>/Harbor.git
+git clone https://github.com/lia0s1/Harbor.git
 cd Harbor
 brew install xcodegen
 ./build.sh open
@@ -133,7 +133,7 @@ See [Security and release](docs/security-and-release.md) for signed-release guid
 ### はじめかた
 
 ```sh
-git clone https://github.com/<your-account>/Harbor.git
+git clone https://github.com/lia0s1/Harbor.git
 cd Harbor
 brew install xcodegen
 ./build.sh open
