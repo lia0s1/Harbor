@@ -159,14 +159,23 @@ final class RecordingPlayer: ObservableObject {
     /// The byte-replay loop runs on a background thread via `Task.detached` so
     /// it never blocks the main actor; the terminal feed and state updates are
     /// dispatched back to the main actor when the background work finishes.
+    /// Recordings larger than this limit cannot be seeked: loading all bytes
+    /// up to the target offset into a single Data buffer would exhaust memory.
+    private static let seekMemoryLimitBytes = 100 * 1024 * 1024
+
     func seek(toFraction fraction: Double) {
         guard hasRecording, totalBytes > 0, let handle = fileHandle else { return }
+        guard totalBytes <= Self.seekMemoryLimitBytes else { return }
         let wasPlaying = state == .playing
         stopTimer()
 
         let clamped = min(max(fraction, 0), 1)
         let target = Int((clamped * Double(totalBytes)).rounded())
         resetTerminal()
+
+        // Capture URL so we can detect if load() replaces the file while
+        // the background seek is in flight (REC-2: seek/load race condition).
+        let seekURL = fileURL
 
         Task {
             // Collect all bytes up to `target` on a background thread.
@@ -184,6 +193,9 @@ final class RecordingPlayer: ObservableObject {
                 }
                 return result
             }.value
+
+            // Discard stale results if load() was called while we were seeking.
+            guard self.fileURL == seekURL else { return }
 
             // Back on the main actor: feed the terminal and restore playback state.
             self.feed(collected)

@@ -151,18 +151,18 @@ public enum RemotePath {
 
 // MARK: - sftp batch lines
 
-/// Builders for `sftp -b` batch commands. sftp's tokenizer treats a
-/// backslash inside double quotes as LITERAL unless it precedes the quote
-/// character, so only `"` needs tokenizer escaping; paths sftp additionally
-/// runs through glob(3) (get's remote path, put's local path) get their glob
-/// metacharacters backslash-escaped so they stay literal.
+/// Builders for `sftp -b` batch commands. sftp's tokenizer treats `\\` as an
+/// escaped backslash and `\"` as an escaped double-quote inside double-quoted
+/// strings; all other characters are literal. Glob metacharacters are further
+/// expanded by sftp for get/put source paths (see quoteGlobbed).
 public enum SFTPBatch {
-    /// Tokenizer-level quoting: wrap in double quotes, escape `"`. For paths
-    /// sftp does NOT glob (destinations, rename, mkdir). Filenames where a
-    /// backslash immediately precedes a `"` (or ends the name) cannot be
-    /// represented and stay best-effort.
+    /// Tokenizer-level quoting: wrap in double quotes, escape `\` then `"`.
+    /// For paths sftp does NOT expand with glob(3) (destinations, rename, mkdir).
     public static func quote(_ path: String) -> String {
-        "\"" + path.replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        let escaped = path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"" + escaped + "\""
     }
 
     /// Quoting for paths sftp expands with glob(3): `* ? [` (and `\`, glob's

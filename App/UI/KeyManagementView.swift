@@ -301,15 +301,19 @@ private struct KeyRowView: View {
             URL(fileURLWithPath: key.pubKeyPath)
         ].filter { FileManager.default.fileExists(atPath: $0.path) }
 
-        do {
-            for url in urls {
+        // Try to move each file to trash individually. Only fall back to
+        // permanent deletion for files that failed to trash — never batch-delete
+        // all files when only one failed (would delete already-trashed files too).
+        var untrashed: [URL] = []
+        for url in urls {
+            do {
                 try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            } catch {
+                untrashed.append(url)
             }
-        } catch {
-            // Fallback: try per-file delete
-            for url in urls {
-                try? FileManager.default.removeItem(at: url)
-            }
+        }
+        for url in untrashed {
+            try? FileManager.default.removeItem(at: url)
         }
         onRefresh()
     }

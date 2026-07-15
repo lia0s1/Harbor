@@ -361,39 +361,47 @@ private struct QuickCommandRow: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
-    @GestureState private var isPressed = false
 
     var body: some View {
-        HStack(spacing: DS.Space.s) {
-            Image(systemName: "chevron.right.circle.fill")
-                .font(.system(size: 14))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(disabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
+        ZStack(alignment: .trailing) {
+            Button(action: onSend) {
+                HStack(spacing: DS.Space.s) {
+                    Image(systemName: "chevron.right.circle.fill")
+                        .font(.system(size: 14))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(disabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
 
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 5) {
-                    Text(L(command.displayTitle))
-                        .font(.system(size: 12.5, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if command.hasParameters {
-                        Text(L("参数"))
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.primary.opacity(0.08)))
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 5) {
+                            Text(L(command.displayTitle))
+                                .font(.system(size: 12.5, weight: .medium))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            if command.hasParameters {
+                                Text(L("参数"))
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Capsule().fill(Color.primary.opacity(0.08)))
+                            }
+                        }
+                        if command.displayTitle != command.command {
+                            Text(command.command)
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
+                    Spacer(minLength: DS.Space.s + 32)
                 }
-                if command.displayTitle != command.command {
-                    Text(command.command)
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                .padding(.horizontal, DS.Space.s)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer(minLength: DS.Space.s)
+            .buttonStyle(CommandRowButtonStyle(isHovering: isHovering, disabled: disabled))
+            .disabled(disabled)
 
             Menu {
                 Button(L("编辑…"), action: onEdit)
@@ -410,25 +418,28 @@ private struct QuickCommandRow: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .padding(.trailing, DS.Space.s)
             .opacity(isHovering ? 1 : 0.35)
         }
-        .padding(.horizontal, DS.Space.s)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: DS.Radius.small + 1, style: .continuous)
-                .fill(isPressed && !disabled ? DS.Colors.rowBackground.opacity(0.6)
-                      : isHovering && !disabled ? DS.Colors.rowBackground : .clear)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: DS.Radius.small + 1))
-        .scaleEffect(isPressed && !disabled ? 0.97 : 1.0)
-        .animation(.easeOut(duration: 0.08), value: isPressed)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .updating($isPressed) { _, state, _ in state = true }
-        )
-        .onTapGesture { if !disabled { onSend() } }
         .onHover { isHovering = $0 }
         .help(disabled ? L("会话未运行") : L("点击发送：%@", command.command))
+    }
+}
+
+private struct CommandRowButtonStyle: ButtonStyle {
+    let isHovering: Bool
+    let disabled: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.small + 1, style: .continuous)
+                    .fill(configuration.isPressed && !disabled ? DS.Colors.rowBackground.opacity(0.6)
+                          : isHovering && !disabled ? DS.Colors.rowBackground : .clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.small + 1))
+            .scaleEffect(configuration.isPressed && !disabled ? 0.97 : 1.0)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 

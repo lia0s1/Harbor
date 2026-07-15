@@ -254,16 +254,14 @@ public enum SSHCommandBuilder {
 
     // MARK: - Validation
 
-    /// Debug-time guard: fires if a caller ever passes a tainted socket path to
-    /// an auxiliary builder. In release builds the bad path is passed through
-    /// and ssh rejects it with an error rather than executing dangerous code.
+    /// Guards against a tainted socket path being passed to an auxiliary builder.
     /// Current callers always supply a hex-derived path from ControlMasterSupport,
-    /// so this assertion should never fire in practice.
+    /// so this should never fire in practice. Uses preconditionFailure so the
+    /// check is active in both debug and release builds.
     private static func assertSafeSocketPath(_ path: String) {
-        assert(
-            !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
-            "controlSocketPath contains control characters: \(path)"
-        )
+        if path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
+            preconditionFailure("controlSocketPath contains control characters: \(path)")
+        }
     }
 
     /// Rejects leading dash, whitespace, and control characters.
@@ -326,7 +324,7 @@ public enum SSHCommandBuilder {
             "passwordauthentication", "preferredauthentications",
             "pubkeyacceptedalgorithms", "pubkeyauthentication", "rekeylimit",
             "requesttty", "serveralivecountmax",
-            "serveraliveinterval", "setenv", "streamlocalbindmask",
+            "serveraliveinterval", "streamlocalbindmask",
             "tcpkeepalive", "usekeychain", "visualhostkey",
         ]
 
