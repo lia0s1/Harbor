@@ -63,6 +63,10 @@ public enum ArchiveKind {
             // Decompress to stdout, redirect under the suffix-stripped basename so
             // the result lands in targetDir and the source archive is kept.
             let stem = strippedBasename(of: archivePath, suffix: entry.suffix)
+            // A file named exactly as the suffix (e.g. ".gz") produces an empty
+            // stem; redirecting to '' would fail with a shell error rather than
+            // silently corrupting data, but we surface a clean nil here instead.
+            guard !stem.isEmpty else { return nil }
             return prefix + "\(entry.tool) -c \(a) > \(sq(stem))"
         }
         return nil

@@ -26,7 +26,7 @@ public enum ControlSocket {
         if let discriminator, !discriminator.isEmpty {
             key += "#\(discriminator)"
         }
-        let digest = Insecure.SHA1.hash(data: Data(key.utf8))
+        let digest = SHA256.hash(data: Data(key.utf8))
         let hex = digest.map { String(format: "%02x", $0) }.joined()
         return "cm-" + String(hex.prefix(16))
     }

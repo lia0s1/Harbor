@@ -89,21 +89,34 @@ final class DockerService: ObservableObject {
         }
     }
 
+    /// Returns true when `id` matches the Docker container ID format (12–64
+    /// lowercase hex chars). Guards action commands against a compromised remote
+    /// docker binary returning a crafted ID; sq() already prevents injection,
+    /// so this is defense-in-depth.
+    private static func isValidContainerID(_ id: String) -> Bool {
+        !id.isEmpty && id.count >= 12 && id.count <= 64 && id.allSatisfy { $0.isHexDigit && $0.isLowercase }
+    }
+
     /// Fetch recent logs for a container (last 200 lines).
     func fetchLogs(for container: DockerContainer) {
+        guard Self.isValidContainerID(container.id) else { return }
         track(Task { [weak self] in
             guard let self else { return }
             let out = await exec.run(
+                // stderr is already redirected to stdout (2>&1), so Docker errors
+                // appear in stdoutText. stderrText here would only be SSH-layer
+                // errors — don't show those as container logs.
                 "docker logs --tail 200 --timestamps \(sq(container.id)) 2>&1",
                 timeout: 15
             )
             guard !Task.isCancelled else { return }
-            self.containerLogs[container.id] = out.stdoutText.isEmpty ? out.stderrText : out.stdoutText
+            self.containerLogs[container.id] = out.stdoutText
         })
     }
 
     /// Start a stopped container.
     func startContainer(_ container: DockerContainer) {
+        guard Self.isValidContainerID(container.id) else { return }
         track(Task { [weak self] in
             guard let self else { return }
             _ = await exec.run("docker start \(sq(container.id))", timeout: 10)
@@ -114,6 +127,7 @@ final class DockerService: ObservableObject {
 
     /// Stop a running container.
     func stopContainer(_ container: DockerContainer) {
+        guard Self.isValidContainerID(container.id) else { return }
         track(Task { [weak self] in
             guard let self else { return }
             _ = await exec.run("docker stop \(sq(container.id))", timeout: 15)
@@ -124,6 +138,7 @@ final class DockerService: ObservableObject {
 
     /// Remove a (stopped) container.
     func removeContainer(_ container: DockerContainer) {
+        guard Self.isValidContainerID(container.id) else { return }
         track(Task { [weak self] in
             guard let self else { return }
             _ = await exec.run("docker rm \(sq(container.id))", timeout: 10)

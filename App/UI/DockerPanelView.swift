@@ -25,32 +25,11 @@ struct DockerPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { service.start() }
-        .toolbar {
-            ToolbarItemGroup {
-                Button { service.refresh() } label: {
-                    Label("刷新", systemImage: "arrow.clockwise")
-                }
-                .help("刷新 Docker 状态")
-
-                Toggle(isOn: $showImages) {
-                    Label("镜像", systemImage: "square.stack")
-                }
-                .help("显示/隐藏镜像列表")
-                .toggleStyle(.button)
-
-                Toggle(isOn: $showLogs) {
-                    Label("日志", systemImage: "text.alignleft")
-                }
-                .help("显示/隐藏容器日志")
-                .toggleStyle(.button)
-                .disabled(selectedContainer == nil)
-            }
-        }
     }
 
     private var containerList: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 6) {
                 Text("容器")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -60,6 +39,20 @@ struct DockerPanelView: View {
                 case .unavailable(let msg): Text(msg).font(.caption).foregroundStyle(.red).lineLimit(1)
                 default: EmptyView()
                 }
+                Toggle(isOn: $showImages) { Label("镜像", systemImage: "square.stack") }
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help("显示/隐藏镜像列表")
+                Toggle(isOn: $showLogs) { Label("日志", systemImage: "text.alignleft") }
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help("显示/隐藏容器日志")
+                    .disabled(selectedContainer == nil)
+                Button { service.refresh() } label: {
+                    Image(systemName: "arrow.clockwise").font(.caption)
+                }
+                .buttonStyle(.plain)
+                .help("刷新 Docker 状态")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

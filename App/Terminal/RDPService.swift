@@ -133,8 +133,10 @@ final class RDPService {
         }
 
         let port = host.port
+        // FreeRDP requires IPv6 addresses wrapped in brackets: /v:[::1]:3389
+        let hostPart = host.hostname.contains(":") ? "[\(host.hostname)]" : host.hostname
         var args: [String] = [
-            "/v:\(host.hostname):\(port)",
+            "/v:\(hostPart):\(port)",
             "/dynamic-resolution",
             "/cert:deny",           // abort on any certificate validation failure
             "+clipboard",
@@ -180,7 +182,7 @@ final class RDPService {
             try process.run()
             if !password.isEmpty {
                 let data = (password + "\n").data(using: .utf8) ?? Data()
-                stdinPipe.fileHandleForWriting.write(data)
+                try stdinPipe.fileHandleForWriting.write(contentsOf: data)
             }
             stdinPipe.fileHandleForWriting.closeFile()
             connection.markRunning(process)
