@@ -59,7 +59,8 @@ targets:
         Release:
           CODE_SIGN_IDENTITY: "Developer ID Application"
           CODE_SIGN_STYLE: Manual
-          DEVELOPMENT_TEAM: YNU9T8LCUR
+          # Set via DEVELOPMENT_TEAM env var when building with release.sh
+          DEVELOPMENT_TEAM: ""
           PROVISIONING_PROFILE_SPECIFIER: ""
 
 schemes:

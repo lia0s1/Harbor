@@ -52,7 +52,7 @@ MCP 的 `write_file` 同样使用目标目录内的唯一临时文件和原子 `
 
    ```sh
    xcrun notarytool store-credentials HarborNotary \
-     --apple-id <APPLE_ID> --team-id YNU9T8LCUR
+     --apple-id <APPLE_ID> --team-id <YOUR_TEAM_ID>
    ```
 
    也可以使用 App Store Connect Team API Key；`ISSUER_ID`、`KEY_ID` 和私钥路径只在本机凭据初始化命令中提供，不写入仓库：
@@ -71,6 +71,6 @@ MCP 的 `write_file` 同样使用目标目录内的唯一临时文件和原子 `
      --install
    ```
 
-脚本会生成 arm64/x86_64 通用 Release archive，使用团队 `YNU9T8LCUR` 的 Developer ID 签名并核对 hardened runtime 与签名团队。它先公证并装订 App，再生成 ZIP；随后先创建可写 DMG、在卷根写入 Finder 自定义图标标志及隐藏的 `.VolumeIcon.icns`，压缩为最终 DMG 后再签名、公证和装订。最终 `.dmg` 文件本身也会写入 Harbor Finder 图标并重新通过签名、公证 ticket 与 Gatekeeper 评估。只有全部成功才会发布最终 ZIP/DMG；同名旧产物与旧安装会移入 `/private/tmp` 作为可逆备份。`--install` 安装的正是已经通过上述门禁的 App。
+脚本会生成 arm64/x86_64 通用 Release archive，使用环境变量 `TEAM_ID` 指定的 Developer ID 签名并核对 hardened runtime 与签名团队。它先公证并装订 App，再生成 ZIP；随后先创建可写 DMG、在卷根写入 Finder 自定义图标标志及隐藏的 `.VolumeIcon.icns`，压缩为最终 DMG 后再签名、公证和装订。最终 `.dmg` 文件本身也会写入 Harbor Finder 图标并重新通过签名、公证 ticket 与 Gatekeeper 评估。只有全部成功才会发布最终 ZIP/DMG；同名旧产物与旧安装会移入 `/private/tmp` 作为可逆备份。`--install` 安装的正是已经通过上述门禁的 App。
 
 后续重新发布必须走上述流程，不能用普通 `build.sh` 产物覆盖。公证凭据只通过 Keychain profile 使用，不写入脚本、仓库或命令行秘密参数。
