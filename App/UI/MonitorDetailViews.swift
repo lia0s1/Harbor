@@ -30,7 +30,7 @@ enum MonitorSheet: Identifiable {
 struct MonitorDetailSheet: View {
     let kind: MonitorDetailKind
     @ObservedObject var monitor: MonitorService
-    @ObservedObject var ping: PingService
+    let ping: PingService
     var forwarding: ForwardingService? = nil
     @Environment(\.dismiss) private var dismiss
 

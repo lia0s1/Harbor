@@ -18,18 +18,15 @@ struct HostListView: View {
     @State private var rdpPasswordHost: SSHHost?
     @State private var rdpPasswordText = ""
     @State private var rdpNoFreerdp = false
+    @State private var cachedSections: [HostSection] = []
+    @State private var cachedLiveHostIDs: Set<UUID> = []
 
     var body: some View {
-        let filtered = filteredHosts
-        let sections = groupedSections(from: filtered)
-        let liveHostIDs = Set(sessionManager.sessions.lazy.compactMap { session in
-            session.state.isExited ? nil : session.host.id
-        })
         List(selection: $selectedHostID) {
-            ForEach(sections, id: \.title) { section in
+            ForEach(cachedSections, id: \.title) { section in
                 Section {
                     ForEach(section.hosts) { host in
-                        row(for: host, isLive: liveHostIDs.contains(host.id))
+                        row(for: host, isLive: cachedLiveHostIDs.contains(host.id))
                     }
                 } header: {
                     SidebarSectionHeader(title: section.title, count: section.hosts.count)
@@ -54,7 +51,11 @@ struct HostListView: View {
             connect(host)
             return .handled
         }
-        .overlay { emptyOverlay(filtered: filtered) }
+        .overlay { emptyOverlay(filtered: cachedSections.flatMap(\.hosts)) }
+        .onAppear { rebuildSections(); rebuildLiveIDs() }
+        .onChange(of: searchText) { _, _ in rebuildSections() }
+        .onChange(of: hostStore.hosts) { _, _ in rebuildSections() }
+        .onChange(of: sessionManager.sessions) { _, _ in rebuildLiveIDs() }
         .safeAreaInset(edge: .bottom, spacing: 0) { quickConnectFooter }
         .toolbar { toolbarContent }
         .sheet(isPresented: $isAddingHost) {
@@ -195,6 +196,17 @@ struct HostListView: View {
     private struct HostSection {
         let title: String
         let hosts: [SSHHost]
+    }
+
+    private func rebuildSections() {
+        let filtered = filteredHosts
+        cachedSections = groupedSections(from: filtered)
+    }
+
+    private func rebuildLiveIDs() {
+        cachedLiveHostIDs = Set(sessionManager.sessions.compactMap { session in
+            session.state.isExited ? nil : session.host.id
+        })
     }
 
     /// One section per tag, alphabetical (case-insensitive); hosts without
