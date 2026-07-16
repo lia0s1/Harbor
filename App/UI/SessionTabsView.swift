@@ -223,13 +223,9 @@ struct SessionTabItem: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Per-host color indicator: quick visual to distinguish servers
-            Circle()
-                .fill(hostIndicatorColor)
-                .frame(width: 6, height: 6)
             Circle()
                 .fill(stateColor)
-                .frame(width: 6, height: 6)
+                .frame(width: 7, height: 7)
                 .accessibilityLabel(stateAccessibilityLabel)
             if isRecording {
                 Circle()
@@ -315,13 +311,6 @@ struct SessionTabItem: View {
         if isSelected { return theme.chromeActiveColor }
         if isHovering { return theme.chromeHoverColor }
         return .clear
-    }
-
-    /// Consistent hue derived from the host UUID's first byte — stable across
-    /// launches and visually distinct per server without a stored color swatch.
-    private var hostIndicatorColor: Color {
-        let u = session.host.id.uuid
-        return Color(hue: Double(u.0) / 255.0, saturation: 0.7, brightness: 0.85)
     }
 
     private var closeButton: some View {
