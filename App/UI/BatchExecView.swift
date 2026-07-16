@@ -41,20 +41,26 @@ struct BatchExecView: View {
                         .foregroundStyle(.secondary)
                         .font(.callout)
                 } else {
-                    ForEach(runningSessions) { session in
-                        Toggle(isOn: Binding(
-                            get: { selectedIDs.contains(session.id) },
-                            set: { if $0 { selectedIDs.insert(session.id) } else { selectedIDs.remove(session.id) } }
-                        )) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "server.rack")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text(session.title)
-                                    .lineLimit(1)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(runningSessions) { session in
+                                Toggle(isOn: Binding(
+                                    get: { selectedIDs.contains(session.id) },
+                                    set: { if $0 { selectedIDs.insert(session.id) } else { selectedIDs.remove(session.id) } }
+                                )) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "server.rack")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(session.title)
+                                            .lineLimit(1)
+                                    }
+                                }
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .frame(maxHeight: 200)
                 }
             }
             .padding()

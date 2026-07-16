@@ -156,14 +156,16 @@ struct ProgressLine: View {
     let fraction: Double
     let tint: Color
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(DS.Colors.barTrack)
-                Capsule().fill(tint.gradient)
-                    .frame(width: max(0, geo.size.width * min(1, max(0, fraction))))
+        Capsule()
+            .fill(DS.Colors.barTrack)
+            .overlay(alignment: .leading) {
+                GeometryReader { geo in
+                    Capsule()
+                        .fill(tint.gradient)
+                        .frame(width: max(0, geo.size.width * min(1, max(0, fraction))))
+                }
             }
-        }
-        .frame(height: 5)
+            .frame(height: 5)
     }
 }
 
@@ -179,15 +181,19 @@ struct SegmentedBar: View {
 
     var body: some View {
         let total = max(1, segments.reduce(0) { $0 + $1.value })
-        GeometryReader { geo in
-            HStack(spacing: 1) {
-                ForEach(segments) { segment in
-                    segment.color
-                        .frame(width: max(0, geo.size.width * (segment.value / total)))
+        Capsule()
+            .fill(DS.Colors.barTrack.opacity(0))
+            .overlay(alignment: .leading) {
+                GeometryReader { geo in
+                    HStack(spacing: 1) {
+                        ForEach(segments) { segment in
+                            segment.color
+                                .frame(width: max(0, geo.size.width * (segment.value / total)))
+                        }
+                    }
+                    .clipShape(Capsule())
                 }
             }
-            .clipShape(Capsule())
-        }
-        .frame(height: 10)
+            .frame(height: 10)
     }
 }

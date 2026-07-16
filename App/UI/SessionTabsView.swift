@@ -234,7 +234,6 @@ struct SessionTabItem: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: 150)
-                .fixedSize(horizontal: true, vertical: false)
             closeButton
         }
         .padding(.leading, 9)
