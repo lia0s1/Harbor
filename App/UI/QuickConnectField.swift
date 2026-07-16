@@ -86,7 +86,7 @@ struct QuickConnectField: View {
             }
         }
         .help("快速连接：[user@]host[:port]，回车打开会话 (⌘T)")
-        .onChange(of: text) { errorMessage = nil }
+        .onChange(of: text) { _, _ in errorMessage = nil }
         .onAppear {
             // ⌘T arrived while the sidebar was collapsed: the field has just
             // been mounted by ContentView reopening the column — grab focus.

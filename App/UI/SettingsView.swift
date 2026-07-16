@@ -48,7 +48,7 @@ private struct PrivacySettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: persistHistory) {
+        .onChange(of: persistHistory) { _, _ in
             if !persistHistory { clearHistory() }
         }
     }
@@ -152,7 +152,7 @@ private struct AppearanceSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .onChange(of: appearanceRaw) {
+                .onChange(of: appearanceRaw) { _, _ in
                     (AppAppearance(rawValue: appearanceRaw) ?? AppAppearance.defaultValue).apply()
                 }
 
@@ -406,7 +406,7 @@ private struct TerminalBackgroundSection: View {
             }
         }
         .onAppear { loadWallpaperImage() }
-        .onChange(of: background.imagePath) { loadWallpaperImage() }
+        .onChange(of: background.imagePath) { _, _ in loadWallpaperImage() }
     }
 
     @ViewBuilder private var imageControls: some View {
