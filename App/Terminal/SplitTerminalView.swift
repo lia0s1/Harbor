@@ -119,6 +119,9 @@ private struct SplitContainerView: View {
     /// First pane's extent captured at drag start, so the drag translation is
     /// applied from a stable base (the live `ratio` shifts as we drag).
     @State private var dragStartExtent: CGFloat?
+    /// Live ratio during drag — kept local so only this view re-renders while
+    /// dragging; written back to shared state only on drag end.
+    @State private var localRatio: CGFloat?
 
     /// `.vertical` means a vertical divider → the panes sit in a row (left/right).
     private var isRow: Bool { direction == .vertical }
@@ -127,7 +130,7 @@ private struct SplitContainerView: View {
         GeometryReader { geo in
             let total = isRow ? geo.size.width : geo.size.height
             let cross = isRow ? geo.size.height : geo.size.width
-            let firstExtent = clamped(ratio * total, total: total)
+            let firstExtent = clamped((localRatio ?? ratio) * total, total: total)
             ZStack(alignment: .topLeading) {
                 panes(firstExtent: firstExtent, total: total, cross: cross)
                 divider(position: firstExtent, total: total, cross: cross)
@@ -182,9 +185,15 @@ private struct SplitContainerView: View {
                 let base = dragStartExtent ?? clamped(ratio * total, total: total)
                 if dragStartExtent == nil { dragStartExtent = base }
                 let delta = isRow ? value.translation.width : value.translation.height
-                state.setRatio(clamped(base + delta, total: total) / total, forSplit: splitID)
+                localRatio = clamped(base + delta, total: total) / total
             }
-            .onEnded { _ in dragStartExtent = nil }
+            .onEnded { _ in
+                if let r = localRatio {
+                    state.setRatio(r, forSplit: splitID)
+                }
+                localRatio = nil
+                dragStartExtent = nil
+            }
     }
 
     /// Keeps both sides at least `minPaneSize` (or half the length when the whole

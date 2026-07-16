@@ -11,6 +11,7 @@ final class PingService: ObservableObject {
     /// reply fires objectWillChange exactly once instead of three times.
     struct PingFrame: Equatable {
         var latencySeries: [Double] = []
+        var latencySum: Double = 0
         var currentMs: Double?
         var averageMs: Double?
     }
@@ -160,11 +161,14 @@ final class PingService: ObservableObject {
         backoffSeconds = Self.initialBackoff
         var next = pingFrame
         next.currentMs = ms
+        next.latencySum += ms
         next.latencySeries.append(ms)
         if next.latencySeries.count > Self.maxSamples {
-            next.latencySeries.removeFirst(next.latencySeries.count - Self.maxSamples)
+            let overflow = next.latencySeries.count - Self.maxSamples
+            next.latencySum -= next.latencySeries.prefix(overflow).reduce(0, +)
+            next.latencySeries.removeFirst(overflow)
         }
-        next.averageMs = next.latencySeries.reduce(0, +) / Double(next.latencySeries.count)
+        next.averageMs = next.latencySum / Double(next.latencySeries.count)
         if next != pingFrame { pingFrame = next }
     }
 }

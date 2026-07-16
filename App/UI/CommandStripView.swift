@@ -153,15 +153,14 @@ struct CommandStripView: View {
     @State private var isExited = false
     @State private var pendingRisk: CommandRisk?
     @State private var pendingCommand = ""
+    @State private var cachedSuggestion = ""
     @FocusState private var fieldFocused: Bool
     @FocusState private var findFocused: Bool
 
     private enum FindStatus: Equatable { case idle, found, notFound }
 
     var body: some View {
-        // Evaluate the history scan once per render; thread it into both readers.
-        let suggestion = self.suggestion
-        let suggestionSuffix = self.suggestionSuffix(for: suggestion)
+        let suggestionSuffix = self.suggestionSuffix(for: cachedSuggestion)
         VStack(spacing: 0) {
             Rectangle()
                 .fill(theme.chromeSeparatorColor)
@@ -173,7 +172,7 @@ struct CommandStripView: View {
                     .frame(height: 1)
             }
             VStack(alignment: .leading, spacing: 4) {
-                inputBar(suggestion: suggestion, suggestionSuffix: suggestionSuffix)
+                inputBar(suggestion: cachedSuggestion, suggestionSuffix: suggestionSuffix)
                 hintRow(suggestionSuffix: suggestionSuffix)
             }
             .padding(.horizontal, DS.Space.m)
@@ -192,6 +191,14 @@ struct CommandStripView: View {
             }
         }
         .onReceive(session.$state) { isExited = $0.isExited }
+        .onChange(of: text) { _, newText in
+            cachedSuggestion = (fieldFocused && !newText.isEmpty)
+                ? (historyStore.history.autosuggestion(forPrefix: newText) ?? "") : ""
+        }
+        .onChange(of: fieldFocused) { _, focused in
+            cachedSuggestion = (focused && !text.isEmpty)
+                ? (historyStore.history.autosuggestion(forPrefix: text) ?? "") : ""
+        }
         .onReceive(NotificationCenter.default.publisher(for: .harborToggleCommandFocus)) { _ in
             toggleFocus()
         }
