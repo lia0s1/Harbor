@@ -97,7 +97,12 @@ struct SessionTabsView: View {
                             theme: theme,
                             isSelected: session.id == sessionManager.selectedSessionID,
                             onSelect: { sessionManager.selectedSessionID = session.id },
-                            onClose: { sessionManager.close(session) }
+                            onClose: { sessionManager.close(session) },
+                            onCloseOthers: {
+                                let others = sessionManager.sessions.filter { $0.id != session.id }
+                                others.forEach { sessionManager.close($0) }
+                            },
+                            onDuplicate: { sessionManager.clone(session) }
                         )
                     }
                     GlassEffectContainer { newTabMenu }
@@ -205,14 +210,23 @@ struct SessionTabItem: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
+    let onCloseOthers: () -> Void
+    let onDuplicate: () -> Void
 
     @State private var isHovering = false
     @State private var title = ""
     @State private var isRecording = false
     @State private var sessionState: TerminalSession.State = .connecting
+    @State private var currentDirectory: String? = nil
+    @State private var isRenaming = false
+    @State private var renameText = ""
 
     var body: some View {
         HStack(spacing: 6) {
+            // Per-host color indicator: quick visual to distinguish servers
+            Circle()
+                .fill(hostIndicatorColor)
+                .frame(width: 6, height: 6)
             Circle()
                 .fill(stateColor)
                 .frame(width: 6, height: 6)
@@ -228,12 +242,21 @@ struct SessionTabItem: View {
                     .font(.system(size: 10))
                     .foregroundStyle(isSelected ? theme.chromePrimaryTextColor : theme.chromeSecondaryTextColor)
             }
-            Text(title)
-                .font(.system(size: 11.5))
-                .foregroundStyle(isSelected ? theme.chromePrimaryTextColor : theme.chromeSecondaryTextColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 150)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(isSelected ? theme.chromePrimaryTextColor : theme.chromeSecondaryTextColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let cwd = currentDirectory {
+                    Text(URL(fileURLWithPath: cwd).lastPathComponent)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .frame(maxWidth: 150, alignment: .leading)
             closeButton
         }
         .padding(.leading, 9)
@@ -246,21 +269,59 @@ struct SessionTabItem: View {
         .contentShape(RoundedRectangle(cornerRadius: DS.Radius.small + 1))
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("关闭标签页") { onClose() }
+            Button("关闭其他标签页") { onCloseOthers() }
+            Divider()
+            Button("复制标签页") { onDuplicate() }
+            Divider()
+            Button("重命名标签页") {
+                renameText = title
+                isRenaming = true
+            }
+        }
+        .popover(isPresented: $isRenaming) {
+            HStack(spacing: DS.Space.s) {
+                TextField("标签页名称", text: $renameText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 180)
+                    .onSubmit {
+                        session.rename(to: renameText)
+                        isRenaming = false
+                    }
+                Button("确定") {
+                    session.rename(to: renameText)
+                    isRenaming = false
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+            .padding()
+        }
         .help(session.host.displayName)
         .onAppear {
             title = session.title
             isRecording = session.isRecording
             sessionState = session.state
+            currentDirectory = session.currentDirectory
         }
         .onReceive(session.$title) { title = $0 }
         .onReceive(session.$isRecording) { isRecording = $0 }
         .onReceive(session.$state) { sessionState = $0 }
+        .onReceive(session.$currentDirectory) { currentDirectory = $0 }
     }
 
     private var tabFill: Color {
         if isSelected { return theme.chromeActiveColor }
         if isHovering { return theme.chromeHoverColor }
         return .clear
+    }
+
+    /// Consistent hue derived from the host UUID's first byte — stable across
+    /// launches and visually distinct per server without a stored color swatch.
+    private var hostIndicatorColor: Color {
+        let u = session.host.id.uuid
+        return Color(hue: Double(u.0) / 255.0, saturation: 0.7, brightness: 0.85)
     }
 
     private var closeButton: some View {
