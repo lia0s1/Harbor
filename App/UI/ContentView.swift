@@ -14,6 +14,10 @@ struct ContentView: View {
     private var monitorPanelVisible = MonitorPanelPreference.defaultVisible
     @AppStorage(FilePanelPreference.storageKey)
     private var filePanelVisible = FilePanelPreference.defaultVisible
+    /// Shared with SessionTabsView and CommandStripCommands via the same key;
+    /// read here so ⌘F can ensure the strip is visible before focusing find.
+    @AppStorage(CommandStripPreference.storageKey)
+    private var commandStripVisible = CommandStripPreference.defaultVisible
     @State private var isQuickJumpOpen = false
     @State private var isBatchExecOpen = false
     @State private var showWelcomeGuide = !UserDefaults.standard.bool(forKey: "hasSeenWelcomeGuide")
@@ -32,6 +36,11 @@ struct ContentView: View {
                   columnVisibility == .detailOnly else { return }
             QuickConnectFocus.requestPending()
             columnVisibility = .all
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .harborFocusFind)) { _ in
+            // ⌘F always works: if the command strip is hidden, show it so
+            // CommandStripView.onAppear can pick up the pending find-focus marker.
+            commandStripVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .harborExportHosts)) { _ in
             HostExportImport.exportHosts(hosts: hostStore.hosts,
@@ -95,31 +104,36 @@ struct ContentView: View {
                 // middle" complaint.
                 .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
         } detail: {
-            Group {
-                if sessionManager.sessions.isEmpty {
-                    EmptyStateView()
-                } else {
-                    SessionTabsView(onManageWorkspaces: { isWorkspaceManagerOpen = true })
+            VStack(spacing: 0) {
+                Group {
+                    if sessionManager.sessions.isEmpty {
+                        EmptyStateView()
+                    } else {
+                        SessionTabsView(onManageWorkspaces: { isWorkspaceManagerOpen = true })
+                    }
                 }
+                // FinalShell's monitoring rail, as a Mac-native trailing inspector.
+                .inspector(isPresented: $monitorPanelVisible) {
+                    MonitorPanel()
+                        // min 270 so the cards never read as cramped; max 420 caps
+                        // how far it can be dragged in, so widening it can't starve
+                        // the detail pane.
+                        .inspectorColumnWidth(min: 270, ideal: 320, max: 420)
+                }
+                .toolbar {
+                    ContentToolbar(
+                        isWorkspaceManagerOpen: $isWorkspaceManagerOpen,
+                        filePanelVisible: $filePanelVisible,
+                        monitorPanelVisible: $monitorPanelVisible
+                    )
+                }
+                // The host-store error alert stays on the detail pane rather than
+                // stacking with the connection-error alert attached below.
+                .modifier(HostStoreErrorAlert(hostStore: hostStore))
+
+                // Persistent thin status bar: connection dot, host name, latency.
+                SessionStatusBar()
             }
-            // FinalShell's monitoring rail, as a Mac-native trailing inspector.
-            .inspector(isPresented: $monitorPanelVisible) {
-                MonitorPanel()
-                    // min 270 so the cards never read as cramped; max 420 caps
-                    // how far it can be dragged in, so widening it can't starve
-                    // the detail pane.
-                    .inspectorColumnWidth(min: 270, ideal: 320, max: 420)
-            }
-            .toolbar {
-                ContentToolbar(
-                    isWorkspaceManagerOpen: $isWorkspaceManagerOpen,
-                    filePanelVisible: $filePanelVisible,
-                    monitorPanelVisible: $monitorPanelVisible
-                )
-            }
-            // The host-store error alert stays on the detail pane rather than
-            // stacking with the connection-error alert attached below.
-            .modifier(HostStoreErrorAlert(hostStore: hostStore))
         }
         // No `.navigationTitle`: a prominent centered "Harbor" title competed
         // with the trailing toolbar (file-panel button + SwiftUI's inspector
@@ -203,6 +217,87 @@ private struct ContentToolbar: ToolbarContent {
                 Label("设置", systemImage: "gearshape")
             }
             .help(L("设置 (⌘,)"))
+        }
+    }
+}
+
+// MARK: - Persistent status bar
+
+/// Thin 22pt bar docked below the main detail pane. Delegates ping observation
+/// to `SessionStatusBarContent` so live latency ticks don't re-render the whole
+/// content tree.
+private struct SessionStatusBar: View {
+    @EnvironmentObject private var sessionManager: SessionManager
+
+    var body: some View {
+        if let session = sessionManager.selectedSession {
+            SessionStatusBarContent(
+                session: session,
+                ping: sessionManager.ping(for: session)
+            )
+            // Force recreation (and fresh @State / onReceive) when the active
+            // tab changes, mirroring the .id on CommandStripView in SessionTabsView.
+            .id(session.id)
+        } else {
+            idleBar
+        }
+    }
+
+    private var idleBar: some View {
+        HStack(spacing: 8) {
+            Circle().fill(Color.gray).frame(width: 6, height: 6)
+            Spacer()
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 12)
+        .frame(height: 22)
+        .background(.bar)
+    }
+}
+
+private struct SessionStatusBarContent: View {
+    let session: TerminalSession
+    let ping: PingService?
+    @State private var sessionState: TerminalSession.State = .connecting
+
+    private var isConnected: Bool { sessionState == .running }
+
+    private var hostLabel: String {
+        let u = session.host.username
+        return u.isEmpty ? session.host.displayName : "\(u)@\(session.host.displayName)"
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(isConnected ? Color.green : Color.gray)
+                .frame(width: 6, height: 6)
+            Text(hostLabel)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer()
+            if let ping {
+                SessionStatusBarPingLabel(ping: ping)
+            }
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 12)
+        .frame(height: 22)
+        .background(.bar)
+        .onAppear { sessionState = session.state }
+        .onReceive(session.$state) { sessionState = $0 }
+    }
+}
+
+/// Isolated so that per-second ping ticks only re-render this label, not the
+/// whole status bar (mirrors the LatencyCardView isolation in MonitorPanel).
+private struct SessionStatusBarPingLabel: View {
+    @ObservedObject var ping: PingService
+
+    var body: some View {
+        if let ms = ping.currentMs {
+            Text("\(Int(ms)) ms")
+                .foregroundStyle(.secondary)
         }
     }
 }
