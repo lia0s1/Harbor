@@ -67,4 +67,21 @@ final class QuickCommandStore: JSONFileStore<QuickCommand> {
             copy.title = original.displayTitle + L(" 副本")
         }
     }
+
+    /// Reorders commands within a single group section and persists.
+    /// `source` and `destination` are indices relative to that group's filtered
+    /// array, matching the IndexSet SwiftUI passes from `.onMove`.
+    func move(inGroup group: String, fromOffsets source: IndexSet, toOffset destination: Int) {
+        let groupIndices = items.indices.filter {
+            items[$0].group.trimmingCharacters(in: .whitespacesAndNewlines) == group
+        }
+        guard !groupIndices.isEmpty else { return }
+        var groupItems = groupIndices.map { items[$0] }
+        groupItems.move(fromOffsets: source, toOffset: destination)
+        var updated = items
+        for (offset, globalIndex) in groupIndices.enumerated() {
+            updated[globalIndex] = groupItems[offset]
+        }
+        replaceAll(with: updated)
+    }
 }
