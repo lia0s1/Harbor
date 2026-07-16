@@ -904,6 +904,27 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     // That is why we do not handle things like the return key here, instead those are
     // handled by doCommand below.
     //
+    // Cmd+C copies the selection when text is selected; otherwise falls through so
+    // the event reaches keyDown and is forwarded to the shell as Ctrl+C (SIGINT).
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
+            return super.performKeyEquivalent(with: event)
+        }
+        switch event.charactersIgnoringModifiers {
+        case "c":
+            if selection.active {
+                copy(self)
+                return true
+            }
+        case "a":
+            selectAll(self)
+            return true
+        default:
+            break
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     // This currently handles the function keys here, but probably should be done in
     // doCommand/noop: - but more research needs to take place to figure out the priority
     // of those keys.
@@ -1977,12 +1998,11 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
     
     private var autoScrollDelta = 0
-    // Callback from when the mouseDown autoscrolling timer goes off
+    private var autoScrollTimer: Timer?
+
     private func scrollingTimerElapsed (source: Timer)
     {
-        if autoScrollDelta == 0 {
-            return
-        }
+        if autoScrollDelta == 0 { return }
         if autoScrollDelta < 0 {
             scrollUp(lines: autoScrollDelta * -1)
         } else {
@@ -2046,9 +2066,12 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         //print ("Up at col=\(hit.col) row=\(hit.row) count=\(event.clickCount) selection.active=\(selection.active) didSelectionDrag=\(didSelectionDrag) ")
         #endif
         
+        autoScrollTimer?.invalidate()
+        autoScrollTimer = nil
+        autoScrollDelta = 0
         didSelectionDrag = false
     }
-    
+
     public override func mouseDragged(with event: NSEvent) {
         let displayBuffer = terminal.displayBuffer
         let mouseHit = calculateMouseHit(with: event)
@@ -2081,6 +2104,16 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
             } else if screenRow >= displayBuffer.rows {
                 autoScrollDelta = calcScrollingVelocity(delta: screenRow - displayBuffer.rows)
             }
+        }
+        if autoScrollDelta != 0 {
+            if autoScrollTimer == nil {
+                autoScrollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] t in
+                    self?.scrollingTimerElapsed(source: t)
+                }
+            }
+        } else {
+            autoScrollTimer?.invalidate()
+            autoScrollTimer = nil
         }
         setNeedsDisplay(bounds)
     }
