@@ -21,7 +21,7 @@ struct HostListView: View {
     @State private var cachedSections: [HostSection] = []
     @State private var cachedLiveHostIDs: Set<UUID> = []
 
-    var body: some View {
+    private var hostList: some View {
         List(selection: $selectedHostID) {
             ForEach(cachedSections, id: \.title) { section in
                 Section {
@@ -56,6 +56,10 @@ struct HostListView: View {
         .onChange(of: searchText) { _, _ in rebuildSections() }
         .onChange(of: hostStore.hosts) { _, _ in rebuildSections() }
         .onChange(of: sessionManager.sessions) { _, _ in rebuildLiveIDs() }
+    }
+
+    var body: some View {
+        hostList
         .safeAreaInset(edge: .bottom, spacing: 0) { quickConnectFooter }
         .toolbar { toolbarContent }
         .sheet(isPresented: $isAddingHost) {
