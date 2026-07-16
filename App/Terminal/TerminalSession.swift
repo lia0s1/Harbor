@@ -310,7 +310,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     let destination: String
 
     @Published private(set) var state: State = .connecting
-    @Published var currentDirectory: String? = nil
     /// >0 while `SessionManager` is auto-reconnecting after an UNEXPECTED drop
     /// (the current attempt number); 0 when idle or connected. The exited banner
     /// reads this to show "正在自动重连…(第 N 次)" instead of the plain notice.
