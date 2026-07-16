@@ -371,6 +371,16 @@ struct CommandStripCommands: Commands {
                 }
             }
             .keyboardShortcut("l", modifiers: .command)
+
+            Button(L("在终端中查找")) {
+                if commandStripVisible {
+                    NotificationCenter.default.post(name: .harborFocusFind, object: nil)
+                } else {
+                    commandStripVisible = true
+                    CommandFindFocus.markPending()
+                }
+            }
+            .keyboardShortcut("f", modifiers: .command)
         }
     }
 }
@@ -396,4 +406,6 @@ extension Notification.Name {
     static let harborShowWelcome = Notification.Name("dev.zero.Harbor.showWelcome")
     static let harborScriptLibrary = Notification.Name("dev.zero.Harbor.scriptLibrary")
     static let harborRecordingPlayer = Notification.Name("dev.zero.Harbor.recordingPlayer")
+    /// Posted by 命令 > 在终端中查找 (⌘F); the command strip opens and focuses its find bar.
+    static let harborFocusFind = Notification.Name("dev.zero.Harbor.focusFind")
 }

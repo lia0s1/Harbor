@@ -35,6 +35,26 @@ enum CommandStripFocus {
     }
 }
 
+// MARK: - Find-bar focus requests (⌘F)
+
+/// Bridges the ⌘F menu command to the find bar for the hidden-strip case.
+/// When the strip is already mounted the menu posts `.harborFocusFind`
+/// directly; this enum handles the race where the view is not yet mounted.
+@MainActor
+enum CommandFindFocus {
+    private static var pendingSince: Date?
+
+    static func markPending() {
+        pendingSince = Date()
+    }
+
+    static func consumePending() -> Bool {
+        defer { pendingSince = nil }
+        guard let since = pendingSince else { return false }
+        return Date().timeIntervalSince(since) < 1.0
+    }
+}
+
 // MARK: - Persistent history store
 
 /// App-layer wrapper around HarborKit's pure `CommandHistory`. History is
@@ -150,6 +170,8 @@ struct CommandStripView: View {
     @State private var findVisible = false
     @State private var findText = ""
     @State private var findStatus: FindStatus = .idle
+    @State private var findCurrentMatch: Int = 0
+    @State private var findMatchCount: Int = 0
     @State private var isExited = false
     @State private var pendingRisk: CommandRisk?
     @State private var pendingCommand = ""
@@ -189,6 +211,11 @@ struct CommandStripView: View {
             if CommandStripFocus.consumePending() {
                 fieldFocused = true
             }
+            if CommandFindFocus.consumePending() {
+                findVisible = true
+                findStatus = .idle
+                Task { @MainActor in findFocused = true }
+            }
         }
         .onReceive(session.$state) { isExited = $0.isExited }
         .onChange(of: text) { _, newText in
@@ -201,6 +228,14 @@ struct CommandStripView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .harborToggleCommandFocus)) { _ in
             toggleFocus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .harborFocusFind)) { _ in
+            if !findVisible {
+                findVisible = true
+                findStatus = .idle
+                findCurrentMatch = 0
+            }
+            Task { @MainActor in findFocused = true }
         }
         .alert(L("确认发送高风险命令"), isPresented: pendingRiskPresented) {
             Button(L("仍然发送"), role: .destructive) {
@@ -417,13 +452,18 @@ struct CommandStripView: View {
                 .foregroundStyle(theme.chromePrimaryTextColor)
                 .focused($findFocused)
                 .onSubmit { find(forward: true) }
-                .onChange(of: findText) { _, _ in findStatus = .idle }
+                .onChange(of: findText) { _, _ in findStatus = .idle; findCurrentMatch = 0 }
                 .padding(.vertical, 5)
 
             if findStatus == .notFound, !findText.isEmpty {
                 Text("无匹配")
                     .font(.system(size: 10))
                     .foregroundStyle(DS.Colors.statusError)
+            } else if findStatus == .found, findCurrentMatch > 0 {
+                Text("\(findCurrentMatch)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.chromeSecondaryTextColor.opacity(0.85))
+                    .padding(.horizontal, 4)
             }
 
             CommandBarIconButton(systemName: "chevron.up", help: L("查找上一个"), theme: theme) {
@@ -502,6 +542,7 @@ struct CommandStripView: View {
         } else {
             findVisible = true
             findStatus = .idle
+            findCurrentMatch = 0
             Task { @MainActor in findFocused = true }
         }
     }
@@ -509,6 +550,7 @@ struct CommandStripView: View {
     private func closeFind() {
         findVisible = false
         findStatus = .idle
+        findCurrentMatch = 0
         session.terminalView.clearSearch()
         // Hand focus back to the terminal so the user keeps working.
         let terminal = session.terminalView
@@ -525,6 +567,11 @@ struct CommandStripView: View {
             ? session.terminalView.findNext(findText)
             : session.terminalView.findPrevious(findText)
         findStatus = hit ? .found : .notFound
+        if hit {
+            findCurrentMatch = forward
+                ? findCurrentMatch + 1
+                : max(1, findCurrentMatch - 1)
+        }
     }
 
     /// ⌘L: field focused -> hand focus back to the terminal; otherwise grab it.

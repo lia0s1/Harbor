@@ -56,6 +56,12 @@ final class HostStore: JSONFileStore<SSHHost> {
         super.delete(ids: ids)
     }
 
+    func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        var updated = items
+        updated.move(fromOffsets: source, toOffset: destination)
+        replaceAll(with: updated)
+    }
+
     /// Merges imported hosts (e.g. from ~/.ssh/config). Skips candidates whose
     /// display name collides with an existing host (case-insensitive) and
     /// candidates that fail SSHCommandBuilder's injection-safety validation.

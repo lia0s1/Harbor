@@ -21,12 +21,28 @@ struct HostListView: View {
     @State private var cachedSections: [HostSection] = []
     @State private var cachedLiveHostIDs: Set<UUID> = []
 
+    /// Drag-to-reorder is only meaningful when there is a single flat section
+    /// and no active search filter, so section-relative indices map 1-to-1
+    /// onto the underlying `hostStore.hosts` array.
+    private var canReorder: Bool { searchText.isEmpty && cachedSections.count == 1 }
+
+    private func moveHosts(fromOffsets source: IndexSet, toOffset destination: Int) {
+        hostStore.move(fromOffsets: source, toOffset: destination)
+        rebuildSections()
+    }
+
     private var hostList: some View {
         List(selection: $selectedHostID) {
             ForEach(cachedSections, id: \.title) { section in
                 Section {
                     ForEach(section.hosts) { host in
                         row(for: host, isLive: cachedLiveHostIDs.contains(host.id))
+                    }
+                    .onMove { source, dest in
+                        // Guard so that reordering only applies when all hosts are
+                        // in a single flat section with no active search filter.
+                        guard canReorder else { return }
+                        moveHosts(fromOffsets: source, toOffset: dest)
                     }
                 } header: {
                     SidebarSectionHeader(title: section.title, count: section.hosts.count)
