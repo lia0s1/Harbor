@@ -38,6 +38,7 @@ struct RecordingPlayerView: View {
     private var terminalArea: some View {
         ZStack {
             RecordingTerminalView(player: player)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             // Shown only before a recording is loaded, so nothing meaningful is
             // ever covered (the terminal is blank at that point).
             if !player.hasRecording {
@@ -299,7 +300,7 @@ private struct RecordingTerminalView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> TerminalView {
         let font = resolvedFont()
-        let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480), font: font)
+        let view = TerminalView(frame: .zero, font: font)
         let theme = TerminalTheme.theme(withID: themeID)
         view.apply(theme: theme)
         view.wantsLayer = true

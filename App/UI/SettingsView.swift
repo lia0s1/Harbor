@@ -77,6 +77,7 @@ private struct AboutSettingsView: View {
                 HStack(spacing: DS.Space.m) {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
+                        .aspectRatio(contentMode: .fit)
                         .frame(width: 56, height: 56)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(verbatim: "Harbor")
