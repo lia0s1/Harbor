@@ -54,7 +54,7 @@ struct TOTPSetupView: View {
                     .lineLimit(1...3)
                     .font(.system(.body, design: .monospaced))
                     .textFieldStyle(.roundedBorder)
-                    .onChange(of: secretInput) { resetTest() }
+                    .onChange(of: secretInput) { _, _ in resetTest() }
 
                     Button {
                         pasteFromClipboard()

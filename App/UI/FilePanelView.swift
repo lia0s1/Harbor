@@ -636,7 +636,7 @@ struct RemoteFilePane: View {
                     url = item as? URL
                 }
                 guard let url, url.isFileURL else { return }
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     service.upload(urls: [url])
                 }
             }
