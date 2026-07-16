@@ -160,6 +160,7 @@ struct QuickCommandPanelView: View {
     @State private var sessionState: TerminalSession.State = .connecting
     @State private var pendingRisk: CommandRisk?
     @State private var pendingCommand = ""
+    @State private var collapsedGroups: Set<String> = []
 
     private var canSend: Bool { sessionState == .running }
 
@@ -256,35 +257,66 @@ struct QuickCommandPanelView: View {
     // MARK: List (grouped by folder)
 
     private var list: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: DS.Space.s) {
-                ForEach(store.groups, id: \.self) { group in
-                    let items = store.commands.filter { $0.group.trimmingCharacters(in: .whitespacesAndNewlines) == group }
-                    if !items.isEmpty {
-                        if !group.isEmpty {
-                            Text(L(group))
-                                .font(.caption.weight(.semibold))
-                                .textCase(.uppercase)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, DS.Space.m)
-                                .padding(.top, 2)
+        List {
+            ForEach(store.groups, id: \.self) { group in
+                let cmds = store.commands.filter {
+                    $0.group.trimmingCharacters(in: .whitespacesAndNewlines) == group
+                }
+                if !cmds.isEmpty {
+                    Section {
+                        if !collapsedGroups.contains(group) {
+                            ForEach(cmds) { cmd in
+                                commandRow(cmd)
+                                    .listRowBackground(Color.clear)
+                                    .listRowInsets(EdgeInsets(
+                                        top: 2, leading: DS.Space.s, bottom: 2, trailing: DS.Space.s))
+                                    .listRowSeparator(.hidden)
+                            }
+                            .onMove { store.move(inGroup: group, fromOffsets: $0, toOffset: $1) }
                         }
-                        ForEach(items) { command in
-                            QuickCommandRow(
-                                command: command,
-                                disabled: !canSend,
-                                onSend: { run(command) },
-                                onEdit: { editorTarget = .edit(command) },
-                                onDuplicate: { store.duplicate(command) },
-                                onDelete: { deleteTarget = command }
-                            )
-                            .padding(.horizontal, DS.Space.s)
+                    } header: {
+                        if !group.isEmpty {
+                            groupHeader(group: group, count: cmds.count)
                         }
                     }
                 }
             }
-            .padding(.vertical, DS.Space.s)
         }
+        .listStyle(.plain)
+    }
+
+    private func commandRow(_ cmd: QuickCommand) -> some View {
+        QuickCommandRow(
+            command: cmd,
+            disabled: !canSend,
+            onSend: { run(cmd) },
+            onEdit: { editorTarget = .edit(cmd) },
+            onDuplicate: { store.duplicate(cmd) },
+            onDelete: { deleteTarget = cmd }
+        )
+    }
+
+    private func groupHeader(group: String, count: Int) -> some View {
+        Button {
+            if collapsedGroups.contains(group) {
+                collapsedGroups.remove(group)
+            } else {
+                collapsedGroups.insert(group)
+            }
+        } label: {
+            HStack {
+                Image(systemName: collapsedGroups.contains(group) ? "chevron.right" : "chevron.down")
+                    .font(.caption)
+                Text(L(group))
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text("\(count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
+        .textCase(nil)
     }
 
     // MARK: Empty state
