@@ -269,6 +269,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
             mtkView.autoresizingMask = [.width, .height]
             mtkView.isPaused = true
             mtkView.enableSetNeedsDisplay = true
+            mtkView.preferredFramesPerSecond = NSScreen.main?.maximumFramesPerSecond ?? 120
             mtkView.framebufferOnly = true
             mtkView.colorPixelFormat = .bgra8Unorm
             let renderer = try MetalTerminalRenderer(view: mtkView, terminalView: self)

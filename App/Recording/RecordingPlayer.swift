@@ -1,5 +1,7 @@
+import AppKit
 import Combine
 import Foundation
+import QuartzCore
 import SwiftTerm
 
 /// Replays a Harbor session recording into a read-only `TerminalView`.
@@ -61,7 +63,6 @@ final class RecordingPlayer: ObservableObject {
     /// Bytes fed per second at 1× speed. Interactive sessions replay at a
     /// readable pace; the speed control and scrubber cover large logs.
     private let baseBytesPerSecond = 6_000
-    private let ticksPerSecond = 60.0
 
     private var fileHandle: FileHandle?
     private var fileURL: URL?
@@ -71,13 +72,13 @@ final class RecordingPlayer: ObservableObject {
     /// `nonisolated(unsafe)` so the nonisolated `deinit` can invalidate it. It is
     /// only ever mutated from the main actor, and SwiftUI releases the owning
     /// `@StateObject` on the main thread, so the deinit call runs there too.
-    private nonisolated(unsafe) var timer: Timer?
+    private nonisolated(unsafe) var displayLink: CADisplayLink?
     private nonisolated(unsafe) var searchTask: Task<Void, Never>?
 
     deinit {
         // The file handle closes its descriptor when ARC releases it; only the
-        // repeating timer (retained by the run loop) must be torn down here.
-        timer?.invalidate()
+        // display link (retained by the run loop) must be torn down here.
+        displayLink?.invalidate()
         searchTask?.cancel()
     }
 
@@ -321,31 +322,32 @@ final class RecordingPlayer: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: - Timer feeding
+    // MARK: - Display link feeding
 
     private func startTimer() {
         stopTimer()
-        let t = Timer(timeInterval: 1.0 / ticksPerSecond, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+        let target = DisplayLinkTarget(player: self)
+        guard let link = NSScreen.main?.displayLink(target: target, selector: #selector(DisplayLinkTarget.tick(_:))) else {
+            return
         }
         // .common so feeding keeps running while the scrubber or a menu tracks.
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        link.add(to: .main, forMode: .common)
+        displayLink = link
     }
 
     private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
+        displayLink?.invalidate()
+        displayLink = nil
     }
 
-    /// Bytes to feed on each tick at the current speed.
-    private var bytesPerTick: Int {
-        max(1, Int((Double(baseBytesPerSecond) * speed.rawValue / ticksPerSecond).rounded()))
+    /// Bytes to feed for one display frame at the current speed.
+    private func bytesPerTick(frameDuration: Double) -> Int {
+        max(1, Int((Double(baseBytesPerSecond) * speed.rawValue * frameDuration).rounded()))
     }
 
-    private func tick() {
+    fileprivate func tick(duration: TimeInterval) {
         guard state == .playing, let handle = fileHandle else { return }
-        let data = (try? handle.read(upToCount: bytesPerTick)) ?? Data()
+        let data = (try? handle.read(upToCount: bytesPerTick(frameDuration: duration))) ?? Data()
         if data.isEmpty {
             finish()
             return
@@ -382,5 +384,15 @@ final class RecordingPlayer: ObservableObject {
         progress = 0
         fileName = ""
         state = .empty
+    }
+}
+
+/// Breaks the retain cycle between the `CADisplayLink` (retained by `RunLoop`)
+/// and `RecordingPlayer` (which would otherwise be retained by the link's target).
+private final class DisplayLinkTarget: NSObject {
+    weak var player: RecordingPlayer?
+    init(player: RecordingPlayer) { self.player = player }
+    @objc func tick(_ link: CADisplayLink) {
+        MainActor.assumeIsolated { self.player?.tick(duration: link.duration) }
     }
 }
