@@ -286,6 +286,7 @@ private struct MonitorPanelContent: View {
             }
             CPUUsageCard(
                 percent: monitor.cpuSeries.last,
+                corePercents: monitor.cpuCorePercents,
                 onTap: { activeSheet = .detail(.cpu) }
             )
             .equatable()
@@ -322,8 +323,12 @@ private struct MonitorPanelContent: View {
             networkCardView
             activeInterfacesCardView
             latencyCard
-            DiskCard(disks: snap.disks)
-                .equatable()
+            DiskCard(
+                disks: snap.disks,
+                diskReadBytesPerSec: monitor.diskReadBytesPerSec,
+                diskWriteBytesPerSec: monitor.diskWriteBytesPerSec
+            )
+            .equatable()
             // Cumulative since-boot traffic, right below 磁盘 as requested —
             // always visible in the rail, not buried in the 系统信息 sheet.
             trafficCardView(snap)
@@ -429,6 +434,13 @@ private struct MonitorPanelContent: View {
 
 }
 
+/// Column by which `ProcessListCard` and `ProcessDetailView` sort the process list.
+enum ProcessSortKey {
+    case cpu
+    case memory
+    case name
+}
+
 // MARK: - Rail cards
 //
 // Each card is a self-contained, `Equatable` subview handed only the slice of
@@ -520,17 +532,49 @@ private struct MonitorOverviewCard: View, @MainActor Equatable {
 
 private struct CPUUsageCard: View, @MainActor Equatable {
     let percent: Double?
+    /// Per-core busy %, in core order. Empty until at least two samples arrive.
+    let corePercents: [Double]
     let onTap: () -> Void
 
-    static func == (a: CPUUsageCard, b: CPUUsageCard) -> Bool { a.percent == b.percent }
+    static func == (a: CPUUsageCard, b: CPUUsageCard) -> Bool {
+        a.percent == b.percent && a.corePercents == b.corePercents
+    }
 
     var body: some View {
         MonitorCard(L("CPU"), symbol: "cpu", onTap: onTap) {
-            HStack(spacing: DS.Space.s) {
-                UsageBar(fraction: (percent ?? 0) / 100, tint: usageTint(percent ?? 0))
-                Text(percent.map { MonitorFormat.percent($0) } ?? "—")
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .frame(minWidth: 32, alignment: .trailing)
+            VStack(spacing: DS.Space.s - 2) {
+                HStack(spacing: DS.Space.s) {
+                    UsageBar(fraction: (percent ?? 0) / 100, tint: usageTint(percent ?? 0))
+                    Text(percent.map { MonitorFormat.percent($0) } ?? "—")
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .frame(minWidth: 32, alignment: .trailing)
+                }
+                if !corePercents.isEmpty {
+                    coreGrid
+                }
+            }
+        }
+    }
+
+    /// Compact 2-column grid of per-core usage bars, up to 16 cores.
+    private var coreGrid: some View {
+        let cores = Array(corePercents.prefix(16))
+        return LazyVGrid(
+            columns: [GridItem(.flexible(), spacing: DS.Space.s),
+                      GridItem(.flexible(), spacing: DS.Space.s)],
+            spacing: 5
+        ) {
+            ForEach(Array(cores.enumerated()), id: \.offset) { index, pct in
+                HStack(spacing: 4) {
+                    Text(L("核%lld", index))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, alignment: .leading)
+                    UsageBar(fraction: pct / 100, tint: usageTint(pct), height: 4)
+                    Text(MonitorFormat.percent(pct))
+                        .font(.system(size: 9).monospacedDigit())
+                        .frame(width: 28, alignment: .trailing)
+                }
             }
         }
     }
@@ -603,6 +647,9 @@ private struct ProcessListCard: View, @MainActor Equatable {
     let onTap: () -> Void
     let onKill: (TopProcess, MonitorService.KillSignal) -> Void
 
+    @State private var sortKey: ProcessSortKey = .cpu
+    @State private var sortAscending = false
+
     static func == (a: ProcessListCard, b: ProcessListCard) -> Bool { a.processes == b.processes }
 
     var body: some View {
@@ -612,38 +659,75 @@ private struct ProcessListCard: View, @MainActor Equatable {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             } else {
-                Grid(alignment: .leading, horizontalSpacing: DS.Space.s, verticalSpacing: 3) {
-                    GridRow {
-                        Text("内存").gridColumnAlignment(.trailing)
-                        Text("CPU").gridColumnAlignment(.trailing)
-                        Text("命令")
-                    }
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.tertiary)
-                    ForEach(processes.prefix(4), id: \.pid) { proc in
+                ScrollView(.vertical, showsIndicators: false) {
+                    Grid(alignment: .leading, horizontalSpacing: DS.Space.s, verticalSpacing: 3) {
+                        // Clickable column headers — tapping selects the column;
+                        // tapping the active column reverses sort direction.
                         GridRow {
-                            Text(MonitorFormat.sizeShort(kb: proc.rssKB))
-                            Text(MonitorFormat.processCPU(proc.cpuPercent))
-                            Text(proc.command)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .help(proc.command)
+                            columnHeader(L("内存"), key: .memory).gridColumnAlignment(.trailing)
+                            columnHeader(L("CPU"),  key: .cpu).gridColumnAlignment(.trailing)
+                            columnHeader(L("命令"), key: .name)
                         }
-                        .font(.system(size: 10.5).monospacedDigit())
-                        // Right-click to kill straight from the rail; full
-                        // confirmation + signal choice lives in the 进程详情 sheet.
-                        .contentShape(Rectangle())
-                        .contextMenu {
-                            if proc.pid > 0 {
-                                Button(L("结束进程")) { onKill(proc, .term) }
-                                Button(L("强制结束"), role: .destructive) { onKill(proc, .kill) }
+                        ForEach(sortedProcesses, id: \.pid) { proc in
+                            GridRow {
+                                Text(MonitorFormat.sizeShort(kb: proc.rssKB))
+                                Text(MonitorFormat.processCPU(proc.cpuPercent))
+                                Text(proc.command)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .help(proc.command)
+                            }
+                            .font(.system(size: 10.5).monospacedDigit())
+                            .contentShape(Rectangle())
+                            .contextMenu {
+                                if proc.pid > 0 {
+                                    Button(L("结束进程")) { onKill(proc, .term) }
+                                    Button(L("强制结束"), role: .destructive) { onKill(proc, .kill) }
+                                }
                             }
                         }
                     }
                 }
+                // Show ~8 rows; the parent rail ScrollView handles the rest.
+                .frame(maxHeight: 160)
             }
         }
+    }
+
+    private var sortedProcesses: [TopProcess] {
+        switch sortKey {
+        case .cpu:
+            return processes.sorted { sortAscending ? $0.cpuPercent < $1.cpuPercent : $0.cpuPercent > $1.cpuPercent }
+        case .memory:
+            return processes.sorted { sortAscending ? $0.rssKB < $1.rssKB : $0.rssKB > $1.rssKB }
+        case .name:
+            return processes.sorted { sortAscending ? $0.command < $1.command : $0.command > $1.command }
+        }
+    }
+
+    /// Small sortable column header button. The active column shows a chevron
+    /// indicating current sort direction; clicking it reverses the direction.
+    private func columnHeader(_ title: String, key: ProcessSortKey) -> some View {
+        Button {
+            if sortKey == key {
+                sortAscending.toggle()
+            } else {
+                sortKey = key
+                sortAscending = false
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(title)
+                if sortKey == key {
+                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(sortKey == key ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
     }
 }
 
@@ -806,8 +890,16 @@ private struct ActiveInterfacesCard: View, @MainActor Equatable {
 
 private struct DiskCard: View, @MainActor Equatable {
     let disks: [DiskUsage]
+    /// Current read speed for the busiest disk in bytes/sec (0 until first delta).
+    let diskReadBytesPerSec: Double
+    /// Current write speed for the busiest disk in bytes/sec (0 until first delta).
+    let diskWriteBytesPerSec: Double
 
-    static func == (a: DiskCard, b: DiskCard) -> Bool { a.disks == b.disks }
+    static func == (a: DiskCard, b: DiskCard) -> Bool {
+        a.disks == b.disks
+            && a.diskReadBytesPerSec == b.diskReadBytesPerSec
+            && a.diskWriteBytesPerSec == b.diskWriteBytesPerSec
+    }
 
     var body: some View {
         MonitorCard(L("磁盘"), symbol: "internaldrive") {
@@ -837,12 +929,34 @@ private struct DiskCard: View, @MainActor Equatable {
                             )
                         }
                     }
+                    // Disk I/O speed — shown once data is available.
+                    ioSpeedRow
                 }
             }
         } accessory: {
             Text("可用/总量")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+        }
+    }
+
+    /// "R: 12.3 MB/s  W: 4.1 MB/s" row below the disk fill bars.
+    private var ioSpeedRow: some View {
+        HStack(spacing: DS.Space.m) {
+            ioLabel(prefix: "R:", bytes: diskReadBytesPerSec)
+            ioLabel(prefix: "W:", bytes: diskWriteBytesPerSec)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func ioLabel(prefix: String, bytes: Double) -> some View {
+        HStack(spacing: 3) {
+            Text(prefix)
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            Text(MonitorFormat.speed(bytesPerSecond: bytes))
+                .font(.system(size: 10).monospacedDigit())
+                .foregroundStyle(.secondary)
         }
     }
 }

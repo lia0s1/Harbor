@@ -5,7 +5,8 @@ import HarborKit
 
 struct ProcessDetailView: View {
     @ObservedObject var monitor: MonitorService
-    @State private var sortByMemory = false
+    @State private var sortKey: ProcessSortKey = .cpu
+    @State private var sortAscending = false
     /// The process awaiting a kill confirmation, plus the signal to send. Held
     /// together so the dialog text and the action use the same target. Uses the
     /// shared `ProcessKillTarget` (defined in MonitorPanel) so the rail's compact
@@ -22,19 +23,37 @@ struct ProcessDetailView: View {
 
     private var processes: [TopProcess] {
         let list = monitor.snapshot?.topProcesses ?? []
-        return sortByMemory
-            ? list.sorted { $0.rssKB > $1.rssKB }
-            : list.sorted { $0.cpuPercent > $1.cpuPercent }
+        switch sortKey {
+        case .cpu:
+            return list.sorted { sortAscending ? $0.cpuPercent < $1.cpuPercent : $0.cpuPercent > $1.cpuPercent }
+        case .memory:
+            return list.sorted { sortAscending ? $0.rssKB < $1.rssKB : $0.rssKB > $1.rssKB }
+        case .name:
+            return list.sorted { sortAscending ? $0.command < $1.command : $0.command > $1.command }
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
-            Picker(L("排序"), selection: $sortByMemory) {
-                Text(L("按 CPU")).tag(false)
-                Text(L("按内存")).tag(true)
+            HStack(spacing: DS.Space.s) {
+                Picker(L("排序"), selection: $sortKey) {
+                    Text(L("按 CPU")).tag(ProcessSortKey.cpu)
+                    Text(L("按内存")).tag(ProcessSortKey.memory)
+                    Text(L("按名称")).tag(ProcessSortKey.name)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Button {
+                    sortAscending.toggle()
+                } label: {
+                    Image(systemName: sortAscending ? "arrow.up" : "arrow.down")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(sortAscending ? L("升序") : L("降序"))
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
 
             // Transient banner for a failed kill (e.g. permission denied / gone).
             if let error = monitor.lastActionError {

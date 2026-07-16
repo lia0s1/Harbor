@@ -122,13 +122,13 @@ final class MonitorParsersTests: XCTestCase {
         XCTAssertEqual(junk.uptimeSeconds, 0)
     }
 
-    func testRemoteScriptHasEightSections() {
-        // 7 separators -> 8 sections, matching the parser's section indices.
+    func testRemoteScriptHasNineSections() {
+        // 8 separators -> 9 sections, matching the parser's section indices.
         let echoCount = MonitorParsers.remoteScript
             .components(separatedBy: "echo @@HARBOR@@").count - 1
-        XCTAssertEqual(echoCount, 7)
+        XCTAssertEqual(echoCount, 8)
         XCTAssertTrue(MonitorParsers.remoteScript.hasPrefix("uname -s; "))
-        XCTAssertTrue(MonitorParsers.remoteScript.hasSuffix("| head -16"))
+        XCTAssertTrue(MonitorParsers.remoteScript.hasSuffix("cat /proc/diskstats"))
     }
 
     // MARK: - Section parsers
