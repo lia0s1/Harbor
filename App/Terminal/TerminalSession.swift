@@ -72,18 +72,30 @@ final class HarborTerminalView: LocalProcessTerminalView {
         // grey out our custom background items under auto-validation).
         menu.autoenablesItems = false
 
-        let copyItem = NSMenuItem(title: L("复制"), action: #selector(NSText.copy(_:)), keyEquivalent: "")
+        let copyItem = NSMenuItem(title: L("复制"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        copyItem.keyEquivalentModifierMask = .command
         copyItem.isEnabled = true
-        let pasteItem = NSMenuItem(title: L("粘贴"), action: #selector(NSText.paste(_:)), keyEquivalent: "")
-        pasteItem.isEnabled = true
         menu.addItem(copyItem)
+
+        let selectAllItem = NSMenuItem(title: L("全选"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        selectAllItem.keyEquivalentModifierMask = .command
+        menu.addItem(selectAllItem)
+
+        let pasteItem = NSMenuItem(title: L("粘贴"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        pasteItem.keyEquivalentModifierMask = .command
+        pasteItem.isEnabled = true
         menu.addItem(pasteItem)
+
+        let pasteExecItem = NSMenuItem(title: L("粘贴并执行"), action: #selector(harborPasteAndExecute(_:)), keyEquivalent: "")
+        menu.addItem(pasteExecItem)
+
         menu.addItem(.separator())
 
         // Clear scrollback + screen (local only; never touches the remote shell).
         let clearBuffer = NSMenuItem(
-            title: L("清空终端"), action: #selector(harborClearBuffer), keyEquivalent: ""
+            title: L("清空终端"), action: #selector(harborClearBuffer), keyEquivalent: "k"
         )
+        clearBuffer.keyEquivalentModifierMask = .command
         clearBuffer.target = self
         menu.addItem(clearBuffer)
         menu.addItem(.separator())
@@ -150,6 +162,12 @@ final class HarborTerminalView: LocalProcessTerminalView {
     @objc private func harborClearBuffer() {
         feed(text: "\u{1b}[3J")
         send(txt: "\u{0C}")
+    }
+
+    @objc private func harborPasteAndExecute(_ sender: NSMenuItem) {
+        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        send(txt: text)
+        send(txt: "\r")
     }
 
     @objc private func harborChooseWallpaper() {
@@ -292,6 +310,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     let destination: String
 
     @Published private(set) var state: State = .connecting
+    @Published var currentDirectory: String? = nil
     /// >0 while `SessionManager` is auto-reconnecting after an UNEXPECTED drop
     /// (the current attempt number); 0 when idle or connected. The exited banner
     /// reads this to show "正在自动重连…(第 N 次)" instead of the plain notice.
@@ -583,7 +602,7 @@ extension TerminalSession: @preconcurrency LocalProcessTerminalViewDelegate {
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        // Not surfaced in the UI (yet).
+        self.currentDirectory = directory
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
