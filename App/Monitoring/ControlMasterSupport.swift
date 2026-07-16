@@ -52,7 +52,7 @@ enum ControlMasterSupport {
     /// broken socket.
     static func assertSafeSocketPath(_ path: String) {
         let byteCount = path.utf8.count
-        precondition(byteCount <= 104,
+        assert(byteCount <= 104,
             "Harbor: socket path exceeds 104-byte Unix limit (\(byteCount) bytes): \(path)")
     }
 }

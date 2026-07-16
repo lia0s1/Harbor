@@ -333,7 +333,7 @@ struct ScriptLibraryView: View {
             // A category only exists once a script uses it: open the editor to
             // create the first script in it. Deferred so the alert finishes
             // dismissing before the sheet presents.
-            DispatchQueue.main.async { editorTarget = .new(category: name) }
+            Task { @MainActor in editorTarget = .new(category: name) }
         case .rename(let old):
             store.renameCategory(old, to: name)
             if selection == .named(old) { selection = .named(name) }

@@ -149,7 +149,8 @@ public enum SSHConfigParser {
         guard path.hasPrefix("~") else { return path }
         if path == "~" { return homeDirectory }
         if path.hasPrefix("~/") {
-            return homeDirectory + path.dropFirst(1)
+            let base = homeDirectory.hasSuffix("/") ? String(homeDirectory.dropLast()) : homeDirectory
+            return base + path.dropFirst(1)
         }
         return path
     }

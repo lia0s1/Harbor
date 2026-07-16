@@ -109,6 +109,10 @@ final class RDPService {
             throw NSError(domain: "HarborRDP", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "\(name) must not contain whitespace"])
         }
+        if value.contains("[") || value.contains("]") {
+            throw NSError(domain: "HarborRDP", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "主机名不能包含括号字符"])
+        }
     }
 
     func connect(host: SSHHost, connection: RDPConnection, password: String = "") {

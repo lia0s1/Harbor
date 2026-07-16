@@ -67,6 +67,7 @@ final class RecordingPlayer: ObservableObject {
     private var fileURL: URL?
     private var totalBytes = 0
     private var bytesFed = 0
+    private var seekGeneration = 0
     /// `nonisolated(unsafe)` so the nonisolated `deinit` can invalidate it. It is
     /// only ever mutated from the main actor, and SwiftUI releases the owning
     /// `@StateObject` on the main thread, so the deinit call runs there too.
@@ -99,6 +100,7 @@ final class RecordingPlayer: ObservableObject {
     func load(url: URL) {
         stopTimer()
         clearSearch()
+        seekGeneration += 1
         try? fileHandle?.close()
         fileHandle = nil
 
@@ -168,6 +170,8 @@ final class RecordingPlayer: ObservableObject {
         guard totalBytes <= Self.seekMemoryLimitBytes else { return }
         let wasPlaying = state == .playing
         stopTimer()
+        seekGeneration += 1
+        let seekGen = seekGeneration
 
         let clamped = min(max(fraction, 0), 1)
         let target = Int((clamped * Double(totalBytes)).rounded())
@@ -196,6 +200,7 @@ final class RecordingPlayer: ObservableObject {
 
             // Discard stale results if load() was called while we were seeking.
             guard self.fileURL == seekURL else { return }
+            guard self.seekGeneration == seekGen else { return }
 
             // Back on the main actor: feed the terminal and restore playback state.
             self.feed(collected)

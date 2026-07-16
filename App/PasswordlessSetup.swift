@@ -12,11 +12,10 @@ enum PasswordlessSetup {
         let message: String
     }
 
-    private static let okMarker = "__HARBOR_OK__"
-    private static let keyOKMarker = "__HARBOR_KEY_OK__"
-
     @MainActor
     static func run(host: SSHHost, password: String) async -> Outcome {
+        let okMarker = "__HARBOR_OK_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))__"
+        let keyOKMarker = "__HARBOR_KEY_OK_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))__"
         // Validate hostname/username/port before using them in argv.
         guard (try? SSHCommandBuilder.arguments(for: host)) != nil else {
             return Outcome(success: false, message: L("主机参数包含非法字符，无法建立连接。"))

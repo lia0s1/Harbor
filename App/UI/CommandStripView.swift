@@ -495,7 +495,7 @@ struct CommandStripView: View {
         } else {
             findVisible = true
             findStatus = .idle
-            DispatchQueue.main.async { findFocused = true }
+            Task { @MainActor in findFocused = true }
         }
     }
 
@@ -505,7 +505,7 @@ struct CommandStripView: View {
         session.terminalView.clearSearch()
         // Hand focus back to the terminal so the user keeps working.
         let terminal = session.terminalView
-        DispatchQueue.main.async {
+        Task { @MainActor in
             guard let window = terminal.window, terminal.superview != nil else { return }
             window.makeFirstResponder(terminal)
         }
@@ -525,7 +525,7 @@ struct CommandStripView: View {
         if fieldFocused {
             fieldFocused = false
             let terminal = session.terminalView
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard let window = terminal.window, terminal.superview != nil else { return }
                 window.makeFirstResponder(terminal)
             }

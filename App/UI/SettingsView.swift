@@ -477,7 +477,12 @@ private struct TerminalBackgroundSection: View {
             cachedWallpaperImage = nil
             return
         }
-        cachedWallpaperImage = NSImage(contentsOfFile: path)
+        Task {
+            let image = await Task.detached(priority: .userInitiated) {
+                NSImage(contentsOfFile: path)
+            }.value
+            cachedWallpaperImage = image
+        }
     }
 
     // MARK: Bindings & actions

@@ -10,6 +10,7 @@ struct QuickHostJumpView: View {
     @Binding var isPresented: Bool
     @State private var query = ""
     @State private var selectedIndex = 0
+    @State private var suppressHover = false
     @FocusState private var fieldFocused: Bool
 
     private var filtered: [SSHHost] {
@@ -64,7 +65,9 @@ struct QuickHostJumpView: View {
                                             selectedIndex = idx
                                             connect()
                                         }
-                                        .onHover { if $0 { selectedIndex = idx } }
+                                        .onHover { hovering in
+                                            if hovering && !suppressHover { selectedIndex = idx }
+                                        }
                                 }
                             }
                         }
@@ -82,10 +85,14 @@ struct QuickHostJumpView: View {
             .padding(.top, -80) // bias toward the upper half
             .onKeyPress(.upArrow) {
                 selectedIndex = max(0, selectedIndex - 1)
+                suppressHover = true
+                Task { try? await Task.sleep(nanoseconds: 300_000_000); suppressHover = false }
                 return .handled
             }
             .onKeyPress(.downArrow) {
                 selectedIndex = min(filtered.count - 1, selectedIndex + 1)
+                suppressHover = true
+                Task { try? await Task.sleep(nanoseconds: 300_000_000); suppressHover = false }
                 return .handled
             }
             .onKeyPress(.escape) { dismiss(); return .handled }
