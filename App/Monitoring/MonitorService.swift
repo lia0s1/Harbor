@@ -90,6 +90,10 @@ final class MonitorService: ObservableObject {
         var cpuCorePercents: [Double] = []
         /// Latest CPU component split (user/system/iowait/…), for the detail.
         var cpuBreakdown: MonitorParsers.CPUBreakdown?
+        /// Current read/write speed for the busiest whole-disk device (bytes/sec).
+        /// Both are 0 until the second sample (first delta) arrives.
+        var diskReadBytesPerSec: Double = 0
+        var diskWriteBytesPerSec: Double = 0
         /// Interface names for the 网络 picker (alphabetical, loopback last),
         /// derived once per tick so the view never sorts during a body pass.
         var interfaceNames: [String] = []
@@ -109,6 +113,8 @@ final class MonitorService: ObservableObject {
     var txSpeedSeries: [String: [Double]] { frame.txSpeedSeries }
     var cpuCorePercents: [Double] { frame.cpuCorePercents }
     var cpuBreakdown: MonitorParsers.CPUBreakdown? { frame.cpuBreakdown }
+    var diskReadBytesPerSec: Double { frame.diskReadBytesPerSec }
+    var diskWriteBytesPerSec: Double { frame.diskWriteBytesPerSec }
     var interfaceNames: [String] { frame.interfaceNames }
     var activeInterfaceNames: [String] { frame.activeInterfaceNames }
 
@@ -138,6 +144,7 @@ final class MonitorService: ObservableObject {
     private var previousTicks: CPUTicks?
     private var previousPerCore: [CPUTicks] = []
     private var previousNet: (date: Date, counters: [String: (rx: UInt64, tx: UInt64)])?
+    private var previousDisk: (date: Date, counters: [String: (read: UInt64, write: UInt64)])?
 
     private static let maxSamples = 90
     private static let initialDelay: TimeInterval = 0.4
@@ -211,6 +218,7 @@ final class MonitorService: ObservableObject {
         previousTicks = nil
         previousPerCore = []
         previousNet = nil
+        previousDisk = nil
         activeAlerts = []
     }
 
@@ -409,6 +417,9 @@ final class MonitorService: ObservableObject {
         }
 
         ingestNetwork(snap.interfaces, into: &next)
+        if !snap.diskIOCounters.isEmpty {
+            ingestDisk(snap.diskIOCounters, into: &next)
+        }
 
         // Precompute the two interface orderings the rail draws, so the SwiftUI
         // cards read a ready-made array instead of sorting on every body pass.
@@ -548,6 +559,44 @@ final class MonitorService: ObservableObject {
             latest[name] = (rx, tx)
         }
         autoPickInterface(latest: latest)
+    }
+
+    /// Computes disk read/write bytes/sec for the busiest whole-disk device
+    /// by diffing consecutive `/proc/diskstats` sector counts. Mirrors the
+    /// same delta-then-defer pattern used by `ingestNetwork`.
+    private func ingestDisk(_ diskCounters: [DiskIOCounters], into next: inout Frame) {
+        let now = Date()
+        var current: [String: (read: UInt64, write: UInt64)] = [:]
+        for c in diskCounters { current[c.device] = (c.sectorsRead, c.sectorsWritten) }
+        defer { previousDisk = (now, current) }
+
+        guard let previous = previousDisk else { return }
+        let elapsed = now.timeIntervalSince(previous.date)
+        guard elapsed > 0 else { return }
+
+        // Pick the device with the highest combined read+write activity.
+        var bestRead: Double = 0
+        var bestWrite: Double = 0
+        var bestActivity: Double = -1
+
+        for (name, cur) in current {
+            guard let prev = previous.counters[name] else { continue }
+            let readDelta  = cur.read  >= prev.read  ? cur.read  - prev.read  : 0
+            let writeDelta = cur.write >= prev.write ? cur.write - prev.write : 0
+            let readBps  = Double(readDelta)  * 512.0 / elapsed
+            let writeBps = Double(writeDelta) * 512.0 / elapsed
+            let activity = readBps + writeBps
+            if activity > bestActivity {
+                bestActivity = activity
+                bestRead  = readBps
+                bestWrite = writeBps
+            }
+        }
+
+        if bestActivity >= 0 {
+            next.diskReadBytesPerSec  = bestRead
+            next.diskWriteBytesPerSec = bestWrite
+        }
     }
 
     /// Picks the busiest non-loopback interface when nothing valid is selected.

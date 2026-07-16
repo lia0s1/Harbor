@@ -108,6 +108,22 @@ public struct DiskUsage: Equatable, Sendable {
     public var usedFraction: Double { totalKB == 0 ? 0 : Double(usedKB) / Double(totalKB) }
 }
 
+/// Per-device cumulative I/O sector counts from `/proc/diskstats`.
+/// One Linux sector = 512 bytes; multiply by 512 to get bytes.
+public struct DiskIOCounters: Equatable, Sendable {
+    public let device: String
+    /// Cumulative 512-byte sectors read since boot.
+    public let sectorsRead: UInt64
+    /// Cumulative 512-byte sectors written since boot.
+    public let sectorsWritten: UInt64
+
+    public init(device: String, sectorsRead: UInt64, sectorsWritten: UInt64) {
+        self.device = device
+        self.sectorsRead = sectorsRead
+        self.sectorsWritten = sectorsWritten
+    }
+}
+
 /// One row of `ps -eo pid,user,pcpu,rss,comm --sort=-pcpu`.
 public struct TopProcess: Equatable, Sendable {
     public let pid: Int
@@ -183,6 +199,9 @@ public struct SystemSnapshot: Equatable, Sendable {
     public var interfaces: [NetworkInterfaceCounters] = []
     public var disks: [DiskUsage] = []
     public var topProcesses: [TopProcess] = []
+    /// Raw sector counts from `/proc/diskstats`, whole-disk devices only.
+    /// The service layer computes read/write bytes/sec from consecutive samples.
+    public var diskIOCounters: [DiskIOCounters] = []
 
     public init() {}
 
@@ -213,11 +232,12 @@ public enum MonitorParsers {
         "cat /proc/net/dev",
         "df -kP",
         "LC_ALL=C ps -eo pid,user:16,pcpu,rss,comm --sort=-pcpu | head -16",
+        "cat /proc/diskstats",
     ].joined(separator: "; echo \(sectionSeparator); ")
 
     // Section indices in the payload, matching `remoteScript` order.
     private enum Section: Int {
-        case uname = 0, uptime, loadavg, stat, meminfo, netdev, df, ps
+        case uname = 0, uptime, loadavg, stat, meminfo, netdev, df, ps, diskstats
     }
 
     /// Parses a full payload. Missing or malformed sections degrade to
@@ -259,6 +279,9 @@ public enum MonitorParsers {
         }
         if let text = section(.ps) {
             snap.topProcesses = parseTopProcesses(text)
+        }
+        if let text = section(.diskstats) {
+            snap.diskIOCounters = parseDiskStats(text)
         }
         return snap
     }
@@ -467,6 +490,57 @@ public enum MonitorParsers {
             ))
         }
         return result
+    }
+
+    /// `/proc/diskstats`. Returns whole-disk block devices only — loop
+    /// pseudo-devices and the most common partition-naming patterns are excluded
+    /// so the service layer can identify the busiest real disk without noise from
+    /// `loop0` or `sda1`. One sector = 512 bytes; the delta is multiplied
+    /// by 512 / elapsed to get bytes/sec.
+    ///
+    /// Field layout per line (0-indexed):
+    ///   0  major  1  minor  2  name
+    ///   3  reads  4  reads_merged  5  sectors_read  6  ms_reading
+    ///   7  writes 8  writes_merged 9  sectors_written 10 ms_writing …
+    public static func parseDiskStats(_ text: String) -> [DiskIOCounters] {
+        var result: [DiskIOCounters] = []
+        for line in text.split(separator: "\n") {
+            let parts = tokens(of: String(line))
+            guard parts.count >= 10,
+                  let sectorsRead    = UInt64(parts[5]),
+                  let sectorsWritten = UInt64(parts[9])
+            else { continue }
+            let name = parts[2]
+            guard isWholeDiskCandidate(name) else { continue }
+            result.append(DiskIOCounters(device: name, sectorsRead: sectorsRead, sectorsWritten: sectorsWritten))
+        }
+        return result
+    }
+
+    /// `true` for whole-disk block devices; `false` for loop pseudo-devices and
+    /// the common partition-suffix patterns (sda1, vda2, nvme0n1p1, …).
+    /// Best-effort: exotic names (md127, mmcblk0p1) may slip through, but the
+    /// service picks the *busiest* device so spurious entries lose to their
+    /// parent in the sort.
+    private static func isWholeDiskCandidate(_ name: String) -> Bool {
+        // Always exclude loop devices.
+        if name.hasPrefix("loop") { return false }
+        // NVMe partition pattern: nvme0n1p1 — contains 'p' followed by digits at end.
+        if name.range(of: #"p\d+$"#, options: .regularExpression) != nil,
+           name.hasPrefix("nvme") {
+            return false
+        }
+        // Traditional partition suffix (sda1, vda2, hda3): trailing digits
+        // where the preceding character is a letter other than 'n'
+        // ('n' is needed for nvme0n1) and not '-' (needed for dm-0 / md-0).
+        let trailingDigits = name.reversed().prefix(while: { $0.isNumber }).count
+        if trailingDigits > 0 {
+            let base = name.dropLast(trailingDigits)
+            if let lastChar = base.last, lastChar != "n", lastChar != "-" {
+                return false
+            }
+        }
+        return true
     }
 
     /// Parses the three-section payload of `MonitorService.fetchDetail`: a
