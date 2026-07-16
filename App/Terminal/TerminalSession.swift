@@ -323,6 +323,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published private(set) var terminalView: LocalProcessTerminalView
     /// True while terminal output is being saved to ~/Library/Logs/Harbor/.
     @Published private(set) var isRecording = false
+    /// Current working directory reported by the shell via OSC 7.
+    @Published private(set) var currentDirectory: String? = nil
+    /// User-assigned tab label; when set, terminal-escape titles are ignored.
+    private var customTitle: String? = nil
     private var recordingSink: TerminalRecordingSink?
     private var runningFallbackTask: Task<Void, Never>?
 
@@ -469,6 +473,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if autoReconnectAttempt != n { autoReconnectAttempt = n }
     }
 
+    /// Assigns a custom display name to this tab. Pass an empty string to revert
+    /// to the terminal-reported (or host) title.
+    func rename(to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespaces)
+        customTitle = trimmed.isEmpty ? nil : trimmed
+        title = customTitle ?? host.displayName
+    }
+
     /// Fresh terminal view + fresh ssh process for the same host.
     func reconnect() {
         guard state.isExited else { return }
@@ -597,12 +609,18 @@ extension TerminalSession: @preconcurrency LocalProcessTerminalViewDelegate {
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
         guard source === terminalView else { return }
+        guard customTitle == nil else { return }
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         self.title = trimmed.isEmpty ? host.displayName : trimmed
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        self.currentDirectory = directory
+        guard source === terminalView else { return }
+        if let raw = directory, let url = URL(string: raw), url.isFileURL {
+            currentDirectory = url.path
+        } else {
+            currentDirectory = directory
+        }
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
