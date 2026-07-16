@@ -232,4 +232,5 @@ private struct ToolSheetsModifier: ViewModifier {
     ContentView()
         .environmentObject(HostStore())
         .environmentObject(SessionManager())
+        .environmentObject(QuickCommandStore())
 }

@@ -27,13 +27,15 @@ public enum CommandRiskDetector {
         let normalized = command.lowercased()
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\t", with: " ")
+        // Collapse runs of spaces so "rm  -rf" (extra spaces) still matches.
+        let condensed = normalized.split(separator: " ").filter { !$0.isEmpty }.joined(separator: " ")
         let tokens = normalized.split(whereSeparator: { $0.isWhitespace })
 
-        if normalized.contains("rm -rf")
-            || normalized.contains("rm -fr")
-            || normalized.contains("rm --recursive")
-            || normalized.contains("mkfs")
-            || normalized.contains("dd if=") {
+        if condensed.contains("rm -rf")
+            || condensed.contains("rm -fr")
+            || condensed.contains("rm --recursive")
+            || condensed.contains("mkfs")
+            || condensed.contains("dd if=") {
             return .destructiveFiles
         }
 
@@ -59,7 +61,8 @@ public enum CommandRiskDetector {
         for index in tokens.indices where tokens[index] == "systemctl" || tokens[index] == "service" {
             let next = tokens.index(after: index)
             guard next < tokens.endIndex else { continue }
-            if ["stop", "restart", "disable"].contains(String(tokens[next])) { return true }
+            if tokens[index] == "systemctl",
+               ["stop", "restart", "disable"].contains(String(tokens[next])) { return true }
             let afterService = tokens.index(after: next)
             if tokens[index] == "service", afterService < tokens.endIndex,
                ["stop", "restart"].contains(String(tokens[afterService])) { return true }

@@ -867,7 +867,7 @@ private struct TrafficCard: View, @MainActor Equatable {
     }
 
     var body: some View {
-        let total = Double(max(1, rxTotal &+ txTotal))
+        let total = max(1.0, Double(rxTotal) + Double(txTotal))
         return MonitorCard(
             L("网络流量（自开机）"),
             symbol: "arrow.up.arrow.down",

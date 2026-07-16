@@ -25,6 +25,7 @@ struct DockerPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { service.start() }
+        .onDisappear { service.stop() }
     }
 
     private var containerList: some View {

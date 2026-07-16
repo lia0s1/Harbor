@@ -68,6 +68,7 @@ final class LocalFileService: ObservableObject {
     private var backStack: [String] = []
     private var forwardStack: [String] = []
     private let fileManager = FileManager.default
+    private var listGeneration = 0
 
     init(startPath: String? = nil) {
         if let startPath, !startPath.isEmpty {
@@ -131,13 +132,15 @@ final class LocalFileService: ObservableObject {
     private func refreshListing() {
         isLoading = true
         errorMessage = nil
+        listGeneration += 1
+        let generation = listGeneration
         let dir = cwd
         let showHidden = self.showHidden
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = Self.listDirectory(at: dir, showHidden: showHidden)
             Task { @MainActor [weak self] in
-                guard let self, self.cwd == dir else { return }
+                guard let self, generation == self.listGeneration else { return }
                 self.isLoading = false
                 switch result {
                 case .success(let entries):

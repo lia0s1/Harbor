@@ -64,7 +64,10 @@ final class ForwardingService: ObservableObject {
             inFlight += 1; busy = true
             let ok = await exec.disableForward(forward)
             inFlight -= 1; busy = inFlight > 0
-            if !ok { lastError = L("端口转发关闭失败") }
+            if !ok {
+                lastError = L("端口转发关闭失败")
+                return
+            }
         }
         adHocForwards.removeAll { $0.id == forward.id }
         enabled.removeValue(forKey: forward.id)

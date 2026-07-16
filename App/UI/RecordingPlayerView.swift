@@ -99,7 +99,7 @@ struct RecordingPlayerView: View {
             Button {
                 searchVisible.toggle()
                 if searchVisible {
-                    DispatchQueue.main.async { searchFocused = true }
+                    Task { @MainActor in searchFocused = true }
                 } else {
                     searchText = ""
                     player.search("")

@@ -142,6 +142,7 @@ struct ForwardRow: View {
             Circle()
                 .fill(isEnabled ? AnyShapeStyle(DS.Colors.statusRunning) : AnyShapeStyle(.tertiary))
                 .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
                 // Kind badge
@@ -184,6 +185,7 @@ struct ForwardRow: View {
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .accessibilityLabel(isEnabled ? L("禁用端口转发 \(forward.bindPort)") : L("启用端口转发 \(forward.bindPort)"))
             }
         }
         .padding(.vertical, 4)

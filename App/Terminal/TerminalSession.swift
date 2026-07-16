@@ -305,6 +305,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// True while terminal output is being saved to ~/Library/Logs/Harbor/.
     @Published private(set) var isRecording = false
     private var recordingSink: TerminalRecordingSink?
+    private var runningFallbackTask: Task<Void, Never>?
 
     /// argv for /usr/bin/ssh, excluding the executable itself. Validated once at init.
     private let arguments: [String]
@@ -480,9 +481,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// `.exited` via `processTerminated`, so this becomes a no-op on auth
     /// failure or bad hostnames and never falsely signals a connected state.
     private func scheduleRunningFallback() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            guard let self, self.state == .connecting else { return }
-            // Only promote to .running when the process is still alive.
+        runningFallbackTask?.cancel()
+        runningFallbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard let self, !Task.isCancelled, self.state == .connecting else { return }
             guard self.terminalView.process.running else { return }
             self.state = .running
         }

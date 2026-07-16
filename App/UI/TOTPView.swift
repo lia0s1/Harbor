@@ -277,6 +277,8 @@ struct TOTPAutoFillBanner: View {
     var onDismiss: () -> Void
     var autoDismiss: TimeInterval = 10
 
+    @State private var dismissed = false
+
     var body: some View {
         HStack(spacing: DS.Space.m) {
             Image(systemName: "shield.lefthalf.filled")
@@ -298,6 +300,7 @@ struct TOTPAutoFillBanner: View {
                 .keyboardShortcut(.defaultAction)
 
             Button {
+                dismissed = true
                 onDismiss()
             } label: {
                 Image(systemName: "xmark")
@@ -317,7 +320,7 @@ struct TOTPAutoFillBanner: View {
         )
         .task {
             try? await Task.sleep(nanoseconds: UInt64(autoDismiss * 1_000_000_000))
-            onDismiss()
+            if !dismissed { onDismiss() }
         }
     }
 }

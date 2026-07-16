@@ -115,7 +115,7 @@ struct HostEditorView: View {
             footer
         }
         .frame(width: 520, height: 600)
-        .onChange(of: hostname) { hostnameWasEdited = true }
+        .onChange(of: hostname) { _, _ in hostnameWasEdited = true }
     }
 
     // MARK: - Sections

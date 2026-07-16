@@ -131,8 +131,11 @@ struct KeyManagementView: View {
 
     private func refreshKeys() {
         errorMessage = nil
-        keys = scanSSHDirectory(sshDir: sshDir)
         Task {
+            let result = await Task.detached(priority: .userInitiated) { [sshDir] in
+                scanSSHDirectory(sshDir: sshDir)
+            }.value
+            keys = result
             await checkAgentLoaded()
         }
     }
@@ -280,7 +283,8 @@ private struct KeyRowView: View {
                     addToAgentFeedback = msg.isEmpty ? L("添加失败") : msg
                 }
                 // Auto-clear feedback after 3 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                Task {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
                     addToAgentFeedback = nil
                 }
             }
@@ -549,7 +553,7 @@ func scanSSHDirectory(sshDir: String) -> [SSHKeyInfo] {
         let keyType: SSHKeyInfo.SSHKeyType
         switch firstLine.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "-----BEGIN OPENSSH PRIVATE KEY-----":
-            keyType = .ed25519  // OpenSSH format — most common for ed25519, but could be others; derived heuristically below
+            keyType = .unknown  // OpenSSH format — could be ed25519/RSA/ECDSA; exact type resolved below via .pub file
         case "-----BEGIN RSA PRIVATE KEY-----":
             keyType = .rsa
         case "-----BEGIN DSA PRIVATE KEY-----":

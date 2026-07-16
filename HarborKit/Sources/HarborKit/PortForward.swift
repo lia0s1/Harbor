@@ -35,7 +35,7 @@ public struct PortForward: Codable, Hashable, Sendable, Identifiable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        id = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
         kind = try c.decode(Kind.self, forKey: .kind)
         bindAddress = try c.decodeIfPresent(String.self, forKey: .bindAddress)
         bindPort = try c.decode(Int.self, forKey: .bindPort)

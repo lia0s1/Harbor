@@ -380,7 +380,8 @@ public enum MonitorParsers {
         if let available = fields["MemAvailable"] {
             info.availableKB = available
         } else {
-            info.availableKB = CPUTicks.saturatingSum(info.freeKB, info.buffersKB, info.cachedKB)
+            let sReclaimable = fields["SReclaimable"] ?? 0
+            info.availableKB = CPUTicks.saturatingSum(info.freeKB, info.buffersKB, info.cachedKB, sReclaimable)
         }
         info.swapTotalKB = fields["SwapTotal"] ?? 0
         info.swapFreeKB = fields["SwapFree"] ?? 0
