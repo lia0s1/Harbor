@@ -389,10 +389,14 @@ final class RecordingPlayer: ObservableObject {
 
 /// Breaks the retain cycle between the `CADisplayLink` (retained by `RunLoop`)
 /// and `RecordingPlayer` (which would otherwise be retained by the link's target).
-private final class DisplayLinkTarget: NSObject {
+// @unchecked Sendable: this class is only ever created, mutated, and called on
+// the main thread (display link is added to RunLoop.main), so cross-isolation
+// sends are safe even though the compiler cannot verify it statically.
+private final class DisplayLinkTarget: NSObject, @unchecked Sendable {
     weak var player: RecordingPlayer?
     init(player: RecordingPlayer) { self.player = player }
     @objc func tick(_ link: CADisplayLink) {
-        MainActor.assumeIsolated { self.player?.tick(duration: link.duration) }
+        let duration = link.duration  // extract Sendable Double before crossing into @MainActor
+        MainActor.assumeIsolated { self.player?.tick(duration: duration) }
     }
 }
