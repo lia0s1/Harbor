@@ -210,8 +210,10 @@ struct RemoteFilePane: View {
 
     @State private var selection = Set<RemoteFileEntry.ID>()
     @State private var pathText = ""
-    @State private var renameTarget: RemoteFileEntry?
-    @State private var renameText = ""
+    @State private var sortOrder: [KeyPathComparator<RemoteFileEntry>] = [KeyPathComparator(\.name)]
+    @State private var inlineRenamingID: RemoteFileEntry.ID? = nil
+    @State private var inlineRenameText = ""
+    @FocusState private var renameFocused: Bool
     @State private var permissionsTarget: RemoteFileEntry?
     @State private var editingFile: RemoteFileEntry?
     @State private var deleteTargets: [RemoteFileEntry] = []
@@ -259,18 +261,6 @@ struct RemoteFilePane: View {
             let live = Set(newEntries.map(\.id))
             selection.formIntersection(live)
         }
-        .alert(L("重命名"), isPresented: renamePresented) {
-            TextField(L("新名称"), text: $renameText)
-            Button(L("重命名")) {
-                if let target = renameTarget {
-                    service.rename(target, to: renameText)
-                }
-                renameTarget = nil
-            }
-            Button(L("取消"), role: .cancel) { renameTarget = nil }
-        } message: {
-            Text(verbatim: L("输入 \u{201C}%@\u{201D} 的新名称。", renameTarget?.name ?? ""))
-        }
         .alert(L("新建文件夹"), isPresented: $newFolderPresented) {
             TextField(L("文件夹名称"), text: $newFolderName)
             Button(L("创建")) { service.createDirectory(named: newFolderName) }
@@ -304,9 +294,11 @@ struct RemoteFilePane: View {
             Text(verbatim: L("此操作无法撤销，将删除：\n%@", deletePathsPreview))
         }
         .sheet(item: $permissionsTarget) { entry in
-            PermissionsSheet(entry: entry) { octal in
+            PermissionsSheet(entry: entry, onApply: { octal in
                 service.changePermissions(entry, octal: octal)
-            }
+            }, onChown: { owner, group in
+                service.changeOwner(entry, owner: owner, group: group)
+            })
         }
         .sheet(item: $editingFile) { entry in
             FileEditorView(entry: entry, service: service)
@@ -418,7 +410,8 @@ struct RemoteFilePane: View {
     }
 
     private var visibleEntries: [RemoteFileEntry] {
-        showHidden ? service.entries : service.entries.filter { !$0.isHidden }
+        let filtered = showHidden ? service.entries : service.entries.filter { !$0.isHidden }
+        return filtered.sorted(using: sortOrder)
     }
 
     private var selectedEntries: [RemoteFileEntry] {
@@ -430,26 +423,39 @@ struct RemoteFilePane: View {
     }
 
     private var remoteTable: some View {
-        Table(of: RemoteFileEntry.self, selection: $selection) {
-            TableColumn(L("名称")) { entry in
-                HStack(spacing: 5) {
-                    RemoteFileEntryIcon(entry: entry)
-                    Text(entry.name)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if let target = entry.linkTarget {
-                        Text("→ \(target)")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
+        Table(of: RemoteFileEntry.self, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn(L("名称"), value: \.name) { entry in
+                if entry.id == inlineRenamingID {
+                    TextField("", text: $inlineRenameText)
+                        .focused($renameFocused)
+                        .onSubmit {
+                            service.rename(entry, to: inlineRenameText)
+                            inlineRenamingID = nil
+                        }
+                        .onKeyPress(.escape) {
+                            inlineRenamingID = nil
+                            return .handled
+                        }
+                } else {
+                    HStack(spacing: 5) {
+                        RemoteFileEntryIcon(entry: entry)
+                        Text(entry.name)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                        if let target = entry.linkTarget {
+                            Text("→ \(target)")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
+                    .help(entry.linkTarget.map { "\(entry.name) → \($0)" } ?? entry.name)
                 }
-                .help(entry.linkTarget.map { "\(entry.name) → \($0)" } ?? entry.name)
             }
             .width(min: 130, ideal: 220)
 
-            TableColumn(L("大小")) { entry in
+            TableColumn(L("大小"), value: \.sizeBytes) { entry in
                 Text(DualPaneFileView.sizeText(entry.sizeBytes, isDirectory: entry.isDirectory))
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -457,7 +463,7 @@ struct RemoteFilePane: View {
             }
             .width(min: 50, ideal: 60, max: 80)
 
-            TableColumn(L("修改时间")) { entry in
+            TableColumn(L("修改时间"), value: \.mtimeEpoch) { entry in
                 Text(DualPaneFileView.dateText(entry.mtimeEpoch))
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -499,6 +505,19 @@ struct RemoteFilePane: View {
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
         }
+        .onKeyPress(KeyEquivalent(Character(UnicodeScalar(0xF705)!))) {
+            guard selection.count == 1, let entry = selectedEntries.first else {
+                return .ignored
+            }
+            beginRename(entry)
+            return .handled
+        }
+        .onChange(of: inlineRenamingID) { _, newID in
+            if newID != nil { renameFocused = true }
+        }
+        .onChange(of: renameFocused) { _, focused in
+            if !focused { inlineRenamingID = nil }
+        }
     }
 
     @ViewBuilder
@@ -538,6 +557,13 @@ struct RemoteFilePane: View {
                     }
                     Button("用外部编辑器打开") { editEntry(items[0]) }
                 }
+                Button(L("在终端中打开")) {
+                    let entry = items[0]
+                    let dir = entry.isDirectory
+                        ? service.absolutePath(of: entry)
+                        : service.cwd
+                    session.sendText("cd \(dir.shellEscaped)\r")
+                }
                 Button("重命名…") { beginRename(items[0]) }
                 Button("权限…") { permissionsTarget = items[0] }
             }
@@ -571,8 +597,8 @@ struct RemoteFilePane: View {
     }
 
     private func beginRename(_ entry: RemoteFileEntry) {
-        renameText = entry.name
-        renameTarget = entry
+        inlineRenameText = entry.name
+        inlineRenamingID = entry.id
     }
 
     private func editEntry(_ entry: RemoteFileEntry) {
@@ -646,13 +672,6 @@ struct RemoteFilePane: View {
 
     // MARK: Alert helpers
 
-    private var renamePresented: Binding<Bool> {
-        Binding(
-            get: { renameTarget != nil },
-            set: { if !$0 { renameTarget = nil } }
-        )
-    }
-
     private var deleteTitle: String {
         deleteTargets.count == 1
             ? L("删除 \u{201C}%@\u{201D}？", deleteTargets[0].name)
@@ -664,6 +683,15 @@ struct RemoteFilePane: View {
         let paths = deleteTargets.map { service.absolutePath(of: $0) }
         if paths.count <= 8 { return paths.joined(separator: "\n") }
         return paths.prefix(8).joined(separator: "\n") + L("\n…等 %lld 项", paths.count)
+    }
+}
+
+// MARK: - Shell escaping
+
+private extension String {
+    /// Single-quote escapes a string for safe inclusion in a remote POSIX shell command.
+    var shellEscaped: String {
+        "'" + self.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
@@ -682,14 +710,20 @@ extension Notification.Name {
 private struct PermissionsSheet: View {
     let entry: RemoteFileEntry
     let onApply: (String) -> Void
+    var onChown: ((String, String) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var bits: [Bool]
+    @State private var ownerText: String
+    @State private var groupText: String
 
-    init(entry: RemoteFileEntry, onApply: @escaping (String) -> Void) {
+    init(entry: RemoteFileEntry, onApply: @escaping (String) -> Void, onChown: ((String, String) -> Void)? = nil) {
         self.entry = entry
         self.onApply = onApply
+        self.onChown = onChown
         _bits = State(initialValue: PermissionsSheet.parse(entry.permissions))
+        _ownerText = State(initialValue: String(entry.uid))
+        _groupText = State(initialValue: String(entry.gid))
     }
 
     /// 9 rwx bits → "ugo" octal string, e.g. "755".
@@ -724,11 +758,31 @@ private struct PermissionsSheet: View {
                 Spacer()
             }
 
+            HStack(spacing: DS.Space.s) {
+                Text(L("所有者")).font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 48, alignment: .trailing)
+                TextField("uid", text: $ownerText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 70)
+                Text(L("组")).font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 20, alignment: .trailing)
+                TextField("gid", text: $groupText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 70)
+            }
+
             HStack {
                 Spacer()
                 Button(L("取消"), role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(L("应用")) { onApply(octal); dismiss() }
+                Button(L("应用")) {
+                    onApply(octal)
+                    if (ownerText != String(entry.uid) || groupText != String(entry.gid)),
+                       !ownerText.isEmpty, !groupText.isEmpty {
+                        onChown?(ownerText, groupText)
+                    }
+                    dismiss()
+                }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
             }

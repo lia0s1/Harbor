@@ -1316,6 +1316,17 @@ final class FileService: ObservableObject {
         runMutation { await exec.run(script, timeout: Self.mutationTimeout) }
     }
 
+    /// `chown owner:group <path>` over ssh.
+    func changeOwner(_ entry: RemoteFileEntry, owner: String, group: String) {
+        let trimmedOwner = owner.trimmingCharacters(in: .whitespaces)
+        let trimmedGroup = group.trimmingCharacters(in: .whitespaces)
+        guard status == .ready, !trimmedOwner.isEmpty, !trimmedGroup.isEmpty else { return }
+        let spec = sq("\(trimmedOwner):\(trimmedGroup)")
+        let script = "chown \(spec) -- " + sq(absolutePath(of: entry))
+        let exec = self.exec
+        runMutation { await exec.run(script, timeout: Self.mutationTimeout) }
+    }
+
     private func runMutation(_ work: @escaping @Sendable () async -> AuxProcess.Output) {
         isMutating = true
         let prior = mutationTask
