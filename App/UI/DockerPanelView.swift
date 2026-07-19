@@ -9,6 +9,7 @@ struct DockerPanelView: View {
     @State private var selectedContainer: DockerContainer?
     @State private var showImages = false
     @State private var showLogs = false
+    @State private var containerToDelete: DockerContainer? = nil
 
     var body: some View {
         HSplitView {
@@ -26,6 +27,17 @@ struct DockerPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { service.start() }
         .onDisappear { service.stop() }
+        .alert(L("删除容器"), isPresented: Binding(get: { containerToDelete != nil }, set: { if !$0 { containerToDelete = nil } })) {
+            Button(L("删除"), role: .destructive) {
+                if let c = containerToDelete { service.removeContainer(c) }
+                containerToDelete = nil
+            }
+            Button(L("取消"), role: .cancel) { containerToDelete = nil }
+        } message: {
+            if let c = containerToDelete {
+                Text(L("确定要删除容器\u{201C}%@\u{201D}吗？此操作不可撤销。", c.displayName))
+            }
+        }
     }
 
     private var containerList: some View {
@@ -72,7 +84,7 @@ struct DockerPanelView: View {
                             service.startContainer(container)
                         }
                     } onRemove: {
-                        service.removeContainer(container)
+                        containerToDelete = container
                     } onLogs: {
                         selectedContainer = container
                         service.fetchLogs(for: container)

@@ -6,10 +6,10 @@ import Foundation
 /// The app passes an explicit, already-expanded socket path (no `%C`/`%h`
 /// tokens) so the interactive master session and auxiliary monitoring
 /// commands share the same literal `ControlPath`. The file name is short and
-/// deterministic — `cm-` + first 16 hex characters of SHA1("user@host:port")
+/// deterministic — `cm-` + first 16 hex characters of SHA-256("user@host:port")
 /// — keeping the full path well under the ~104-byte `sockaddr_un` limit.
 public enum ControlSocket {
-    /// `cm-<first 16 hex of SHA1("user@host:port")>`. The username may be
+    /// `cm-<first 16 hex of SHA-256("user@host:port")>`. The username may be
     /// empty (key becomes `"@host:port"`); what matters is determinism.
     ///
     /// A non-nil `discriminator` is appended as `"#<discriminator>"` before

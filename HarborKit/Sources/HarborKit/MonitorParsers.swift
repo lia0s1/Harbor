@@ -530,13 +530,18 @@ public enum MonitorParsers {
            name.hasPrefix("nvme") {
             return false
         }
+        // Software RAID whole-disk: md0, md127, etc.
+        if name.range(of: #"^md\d+$"#, options: .regularExpression) != nil {
+            return true
+        }
         // Traditional partition suffix (sda1, vda2, hda3): trailing digits
         // where the preceding character is a letter other than 'n'
-        // ('n' is needed for nvme0n1) and not '-' (needed for dm-0 / md-0).
+        // ('n' is needed for nvme0n1), not '-' (needed for dm-0 / md-0),
+        // and not 'k' (needed for mmcblk0 eMMC whole-disk devices).
         let trailingDigits = name.reversed().prefix(while: { $0.isNumber }).count
         if trailingDigits > 0 {
             let base = name.dropLast(trailingDigits)
-            if let lastChar = base.last, lastChar != "n", lastChar != "-" {
+            if let lastChar = base.last, lastChar != "n", lastChar != "-", lastChar != "k" {
                 return false
             }
         }

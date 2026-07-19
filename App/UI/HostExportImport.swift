@@ -147,8 +147,13 @@ enum HostExportImport {
             commandsByID[command.id] = command
             if currentCommandIDs.contains(command.id) { updatedCommands += 1 }
         }
+        let existingOrdered = currentHosts.compactMap { byID[$0.id] }
+        let existingIDs = Set(currentHosts.map { $0.id })
+        let newHosts = Array(byID.values).filter { !existingIDs.contains($0.id) }
+        let mergedHosts = existingOrdered + newHosts
+
         return ImportOutcome(
-            hosts: Array(byID.values),
+            hosts: mergedHosts,
             commands: Array(commandsByID.values),
             updatedHosts: updatedHosts,
             addedHosts: addedHosts,

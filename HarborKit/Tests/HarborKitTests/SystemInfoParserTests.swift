@@ -126,7 +126,7 @@ final class SystemInfoParserTests: XCTestCase {
         let cpu = SystemInfoParser.parseCPUInfo(text)
         XCTAssertEqual(cpu.cores, 4)
         XCTAssertEqual(cpu.mhz, 0) // absent → 0, not garbage
-        XCTAssertEqual(cpu.model, "BCM2835")
+        XCTAssertEqual(cpu.model, "Raspberry Pi 4 Model B Rev 1.4")
     }
 
     func testCPUInfoEmptyYieldsZeroCores() {

@@ -81,9 +81,10 @@ enum DirectorySyncPlanner {
             localFiles[url.lastPathComponent] = (url, size, mtime)
         }
 
-        let remoteFiles = Dictionary(uniqueKeysWithValues: remoteEntries
-            .filter { !$0.isDirectory && !$0.isSymlink }
-            .map { ($0.name, $0) })
+        var remoteFiles: [String: RemoteFileEntry] = [:]
+        for entry in remoteEntries where !entry.isDirectory && !entry.isSymlink {
+            remoteFiles[entry.name] = entry
+        }
         var changes: [DirectorySyncChange] = []
 
         for (name, local) in localFiles {

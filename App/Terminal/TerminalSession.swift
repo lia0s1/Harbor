@@ -445,8 +445,17 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         let stamp = fmt.string(from: Date()).replacingOccurrences(of: ":", with: "-")
         let safe = host.hostname.replacingOccurrences(of: "/", with: "_")
         let url = logsDir.appendingPathComponent("\(safe)-\(stamp).log")
-        FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600])
-        guard let handle = try? FileHandle(forWritingTo: url) else { return }
+        guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+            NSLog("Harbor: startRecording: failed to create log file at \(url.path)")
+            return
+        }
+        let handle: FileHandle
+        do {
+            handle = try FileHandle(forWritingTo: url)
+        } catch {
+            NSLog("Harbor: startRecording: cannot open log file for writing: \(error)")
+            return
+        }
         let sink = TerminalRecordingSink(handle: handle)
         recordingSink = sink
         isRecording = true

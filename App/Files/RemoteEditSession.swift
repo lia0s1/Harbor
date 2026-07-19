@@ -275,6 +275,7 @@ final class RemoteEditSession {
                     self.timer?.invalidate()
                     self.timer = nil
                     self.pending = false
+                    self.stopped = true
                 }
             }
         }

@@ -226,7 +226,7 @@ public enum SystemInfoParser {
             }
         }
         info.model = !modelName.isEmpty ? modelName
-            : (!hardware.isEmpty ? hardware : armModel)
+            : (!armModel.isEmpty ? armModel : hardware)
         return info
     }
 

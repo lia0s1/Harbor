@@ -99,6 +99,7 @@ public enum SSHCommandBuilder {
         if !shell.isEmpty {
             try validateNoLeadingDash(shell, field: "shell")
             try validateNoControlCharacters(shell, field: "shell")
+            try validateNoShellMetacharacters(shell, field: "shell")
             // Insert -t before the destination so the server allocates a PTY.
             if let destIndex = args.indices.last {
                 args.insert("-t", at: destIndex)
@@ -282,6 +283,13 @@ public enum SSHCommandBuilder {
 
     static func validateNoControlCharacters(_ value: String, field: String) throws {
         if value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
+            throw SSHCommandError.unsafeValue(field: field, value: value)
+        }
+    }
+
+    static func validateNoShellMetacharacters(_ value: String, field: String) throws {
+        let metacharacters: Set<Character> = [" ", ";", "|", "&", "`", "$", "(", ")", "<", ">", "\n", "\r"]
+        if value.contains(where: { metacharacters.contains($0) }) {
             throw SSHCommandError.unsafeValue(field: field, value: value)
         }
     }

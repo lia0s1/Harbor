@@ -67,4 +67,14 @@ final class ArchiveKindTests: XCTestCase {
         // the only unquoted "&&" is our own mkdir/cd join, never the payload
         XCTAssertFalse(c.contains("&& rm -rf ~"))
     }
+
+    func testShellQuotingHandlesSingleQuotes() {
+        // sq() escapes embedded single quotes as '"'"' (close-quote, double-quoted
+        // apostrophe, re-open). A raw O'Brien.tar.gz must not produce broken shell.
+        let c = ArchiveKind.extractCommand(archivePath: "/path/to/O'Brien.tar.gz", into: "/root")!
+        // The escape sequence must be present.
+        XCTAssertTrue(c.contains("'\"'\"'"))
+        // The raw unescaped name must NOT appear.
+        XCTAssertFalse(c.contains("O'Brien"))
+    }
 }

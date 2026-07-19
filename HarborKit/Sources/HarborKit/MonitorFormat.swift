@@ -38,7 +38,7 @@ public enum MonitorFormat {
     /// "512 B/s", "65 KB/s", "1.2 MB/s" — for the ↑/↓ speed labels.
     public static func speed(bytesPerSecond: Double) -> String {
         let value = max(0, bytesPerSecond)
-        if value < 1024 { return String(format: "%.0f B/s", value) }
+        if value.rounded() < 1024 { return String(format: "%.0f B/s", value) }
         var scaled = value / 1024
         var unitIndex = 0
         // Promote on the rounded display value (see sizeShort): avoids "1024 KB/s".
@@ -55,7 +55,7 @@ public enum MonitorFormat {
     public static func speedAxisLabel(bytesPerSecond: Double) -> String {
         let value = max(0, bytesPerSecond)
         if value < 1 { return "0" }
-        if value < 1024 { return String(format: "%.0fB", value) }
+        if value.rounded() < 1024 { return String(format: "%.0fB", value) }
         var scaled = value / 1024
         var unitIndex = 0
         // Promote on the rounded display value (see sizeShort): avoids "1024M".

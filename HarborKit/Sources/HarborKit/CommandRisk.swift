@@ -39,6 +39,14 @@ public enum CommandRiskDetector {
             return .destructiveFiles
         }
 
+        // rm with separate -r and -f flags (any order)
+        let hasRm = condensed.hasPrefix("rm ") || condensed.contains(" rm ")
+        let hasRecursive = condensed.contains(" -r ") || condensed.contains(" -R ") || condensed.contains(" --recursive")
+        let hasForce = condensed.contains(" -f ") || condensed.contains(" --force")
+        if hasRm && hasRecursive && hasForce {
+            return .destructiveFiles
+        }
+
         if tokens.contains("reboot") || tokens.contains("shutdown") || tokens.contains("poweroff")
             || containsLifecycleCommand(tokens) {
             return .systemLifecycle

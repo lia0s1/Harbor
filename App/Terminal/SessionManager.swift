@@ -170,8 +170,13 @@ final class SessionManager: ObservableObject {
         // so the old freerdp process is reaped rather than silently orphaned.
         rdpConnections[host.id]?.disconnect()
         let conn = RDPConnection(host: host)
-        conn.onExit = { [weak self] hostID in
-            self?.rdpConnections.removeValue(forKey: hostID)
+        conn.onExit = { [weak self, weak conn] hostID in
+            guard let self, let conn else { return }
+            // Only remove the entry if it still points to THIS connection;
+            // a reconnect may have already replaced it with a new one.
+            if self.rdpConnections[hostID] === conn {
+                self.rdpConnections.removeValue(forKey: hostID)
+            }
         }
         rdpConnections[host.id] = conn
         rdpService.connect(host: host, connection: conn, password: password)

@@ -100,9 +100,9 @@ final class DockerService: ObservableObject {
     /// Fetch recent logs for a container (last 200 lines).
     func fetchLogs(for container: DockerContainer) {
         guard Self.isValidContainerID(container.id) else { return }
-        track(Task { [weak self] in
+        track { [weak self] in
             guard let self else { return }
-            let out = await exec.run(
+            let out = await self.exec.run(
                 // stderr is already redirected to stdout (2>&1), so Docker errors
                 // appear in stdoutText. stderrText here would only be SSH-layer
                 // errors — don't show those as container logs.
@@ -111,45 +111,56 @@ final class DockerService: ObservableObject {
             )
             guard !Task.isCancelled else { return }
             self.containerLogs[container.id] = out.stdoutText
-        })
+        }
     }
 
     /// Start a stopped container.
     func startContainer(_ container: DockerContainer) {
         guard Self.isValidContainerID(container.id) else { return }
-        track(Task { [weak self] in
+        track { [weak self] in
             guard let self else { return }
-            _ = await exec.run("docker start \(sq(container.id))", timeout: 10)
+            _ = await self.exec.run("docker start \(sq(container.id))", timeout: 10)
             guard !Task.isCancelled else { return }
             self.refresh()
-        })
+        }
     }
 
     /// Stop a running container.
     func stopContainer(_ container: DockerContainer) {
         guard Self.isValidContainerID(container.id) else { return }
-        track(Task { [weak self] in
+        track { [weak self] in
             guard let self else { return }
-            _ = await exec.run("docker stop \(sq(container.id))", timeout: 15)
+            _ = await self.exec.run("docker stop \(sq(container.id))", timeout: 15)
             guard !Task.isCancelled else { return }
             self.refresh()
-        })
+        }
     }
 
     /// Remove a (stopped) container.
     func removeContainer(_ container: DockerContainer) {
         guard Self.isValidContainerID(container.id) else { return }
-        track(Task { [weak self] in
+        track { [weak self] in
             guard let self else { return }
-            _ = await exec.run("docker rm \(sq(container.id))", timeout: 10)
+            _ = await self.exec.run("docker rm \(sq(container.id))", timeout: 10)
             guard !Task.isCancelled else { return }
             self.refresh()
-        })
+        }
     }
 
-    private func track(_ task: Task<Void, Never>) {
+    private func track(_ body: @MainActor @escaping () async -> Void) {
+        // Capture a handle to the task so the task itself can remove the entry
+        // once it completes (naturally OR via cancellation).
+        var handle: Task<Void, Never>?
+        let task = Task { @MainActor [weak self] in
+            defer {
+                if let self, let h = handle {
+                    self.actionTasks.removeAll { $0 == h }
+                }
+            }
+            await body()
+        }
+        handle = task
         actionTasks.append(task)
-        // Prune completed tasks so the array doesn't grow without bound.
         actionTasks.removeAll { $0.isCancelled }
     }
 }

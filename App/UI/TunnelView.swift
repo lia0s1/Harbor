@@ -124,6 +124,8 @@ private struct TunnelRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
+    @State private var confirmDelete = false
+
     var body: some View {
         HStack(spacing: DS.Space.m) {
             TunnelTypeBadge(type: tunnel.type)
@@ -157,7 +159,7 @@ private struct TunnelRow: View {
                 Button(action: onEdit) {
                     Label(L("编辑"), systemImage: "pencil")
                 }
-                Button(role: .destructive, action: onDelete) {
+                Button(role: .destructive) { confirmDelete = true } label: {
                     Label(L("删除"), systemImage: "trash")
                 }
             } label: {
@@ -168,6 +170,12 @@ private struct TunnelRow: View {
             .fixedSize()
         }
         .padding(.vertical, 2)
+        .alert(L("删除隧道"), isPresented: $confirmDelete) {
+            Button(L("删除"), role: .destructive, action: onDelete)
+            Button(L("取消"), role: .cancel) {}
+        } message: {
+            Text(L("确定要删除隧道\u{201C}%@\u{201D}吗？", tunnel.displayName))
+        }
     }
 
     @ViewBuilder private var statusIndicator: some View {

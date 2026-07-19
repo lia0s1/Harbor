@@ -173,14 +173,14 @@ private struct SystemInfoReport: View {
 
     private var networkSection: some View {
         SystemInfoGroup(title: L("网络"), symbol: "network") {
-            ForEach(Array(info.interfaces.enumerated()), id: \.offset) { index, iface in
+            ForEach(Array(info.interfaces.enumerated()), id: \.element.name) { index, iface in
                 if index > 0 {
                     Divider().padding(.vertical, 1)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(iface.name)
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    ForEach(Array(iface.addresses.enumerated()), id: \.offset) { _, address in
+                    ForEach(iface.addresses, id: \.self) { address in
                         Text(ServerPrivacy.mask(address, when: maskIP))
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.secondary)
@@ -198,7 +198,7 @@ private struct SystemInfoReport: View {
 
     private var diskSection: some View {
         SystemInfoGroup(title: L("文件系统"), symbol: "internaldrive") {
-            ForEach(Array(info.filesystems.enumerated()), id: \.offset) { index, fs in
+            ForEach(Array(info.filesystems.enumerated()), id: \.element.mount) { index, fs in
                 if index > 0 {
                     Divider().padding(.vertical, 1)
                 }

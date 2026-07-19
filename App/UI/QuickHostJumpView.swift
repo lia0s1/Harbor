@@ -90,7 +90,7 @@ struct QuickHostJumpView: View {
                 return .handled
             }
             .onKeyPress(.downArrow) {
-                selectedIndex = min(filtered.count - 1, selectedIndex + 1)
+                selectedIndex = max(0, min(filtered.count - 1, selectedIndex + 1))
                 suppressHover = true
                 Task { try? await Task.sleep(nanoseconds: 300_000_000); suppressHover = false }
                 return .handled
@@ -101,7 +101,7 @@ struct QuickHostJumpView: View {
     }
 
     private func connect() {
-        guard selectedIndex < filtered.count else { dismiss(); return }
+        guard selectedIndex >= 0 && selectedIndex < filtered.count else { dismiss(); return }
         let host = filtered[selectedIndex]
         sessionManager.openSession(host: host)
         dismiss()

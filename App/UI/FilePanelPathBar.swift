@@ -40,7 +40,7 @@ struct RemotePathBar: View {
             if recents.isEmpty {
                 Text("暂无历史路径")
             } else {
-                ForEach(Array(recents.enumerated()), id: \.offset) { _, path in
+                ForEach(recents, id: \.self) { path in
                     Button(path) { service.navigate(toPath: path) }
                 }
             }

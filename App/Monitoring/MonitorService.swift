@@ -177,7 +177,6 @@ final class MonitorService: ObservableObject {
         status = .checking
         consecutiveFailures = 0
         socketVerified = false
-        everActive = false
         loopTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.initialDelay * 1_000_000_000))
             // Share the connect-time `ssh -O check` poll with the file/info

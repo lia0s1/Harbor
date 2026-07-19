@@ -413,7 +413,7 @@ struct CommandStripView: View {
             if recents.isEmpty {
                 Text("暂无历史命令")
             } else {
-                ForEach(Array(recents.enumerated()), id: \.offset) { _, command in
+                ForEach(recents, id: \.self) { command in
                     Button(command) {
                         text = command
                         navigator.reset()

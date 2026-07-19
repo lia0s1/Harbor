@@ -3,24 +3,24 @@ import XCTest
 
 final class ControlSocketTests: XCTestCase {
 
-    func testFileNameMatchesKnownSHA1Prefix() {
-        // shasum -a1 of "alice@example.com:22" = c8226096af42e418ec34b7135c1cd2e0e79902fe
+    func testFileNameMatchesKnownSHA256Prefix() {
+        // shasum -a 256 of "alice@example.com:22" = ca189eebce1a7f6dd62a918797f8f611a3b4968a6e481f100c6ed53e71ed11c8
         XCTAssertEqual(
             ControlSocket.fileName(username: "alice", hostname: "example.com", port: 22),
-            "cm-c8226096af42e418"
+            "cm-ca189eebce1a7f6d"
         )
-        // shasum -a1 of "root@10.0.0.5:2222" = af1ed46d97a18aafcdf339ee962e4f4c9dfd1cc7
+        // shasum -a 256 of "root@10.0.0.5:2222" = 2e00a8e8bd7e2416a0a9712093b428b4bddb0d5be873f7bdc0071c942be7727e
         XCTAssertEqual(
             ControlSocket.fileName(username: "root", hostname: "10.0.0.5", port: 2222),
-            "cm-af1ed46d97a18aaf"
+            "cm-2e00a8e8bd7e2416"
         )
     }
 
     func testEmptyUsernameIsStillDeterministic() {
-        // shasum -a1 of "@example.com:22" = b1cd0782c6fa7b0f66b7f65829057640760e8a98
+        // shasum -a 256 of "@example.com:22" = 50f34de5f6cac084e170744b42ccce5ae4169cb60ea0dfc7891aa9847d0868a9
         XCTAssertEqual(
             ControlSocket.fileName(username: "", hostname: "example.com", port: 22),
-            "cm-b1cd0782c6fa7b0f"
+            "cm-50f34de5f6cac084"
         )
     }
 
@@ -45,7 +45,7 @@ final class ControlSocketTests: XCTestCase {
         let messy = SSHHost(hostname: " example.com ", username: " alice ")
         let clean = SSHHost(hostname: "example.com", username: "alice")
         XCTAssertEqual(ControlSocket.fileName(for: messy), ControlSocket.fileName(for: clean))
-        XCTAssertEqual(ControlSocket.fileName(for: clean), "cm-c8226096af42e418")
+        XCTAssertEqual(ControlSocket.fileName(for: clean), "cm-ca189eebce1a7f6d")
     }
 
     func testDiscriminatorProducesDistinctDeterministicName() {
@@ -56,7 +56,7 @@ final class ControlSocketTests: XCTestCase {
         let b = ControlSocket.fileName(
             username: "alice", hostname: "example.com", port: 22, discriminator: "tab-3"
         )
-        // shasum -a1 of "alice@example.com:22#tab-2" prefix check via determinism:
+        // shasum -a 256 of "alice@example.com:22#tab-2" prefix check via determinism:
         XCTAssertEqual(
             a,
             ControlSocket.fileName(

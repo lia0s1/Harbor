@@ -56,6 +56,12 @@ final class MonitorParsersTests: XCTestCase {
       789 root             0.2   5120 sshd
         1 root             0.1   2048 systemd
        42 root             0.0   1024 kworker/0:1H
+    @@HARBOR@@
+       8       0 sda 12345 678 234567 8901 2345 678 90123 4567 0 8901 13468
+       8       1 sda1 10000 500 200000 7000 2000 600 80000 4000 0 7500 11000
+      11       0 sr0 0 0 0 0 0 0 0 0 0 0 0
+     252       0 vda 5000 200 100000 3000 1000 300 40000 2000 0 3500 5000
+     252       1 vda1 4000 150 90000 2500 800 250 35000 1800 0 3000 4300
     """
 
     // MARK: - Full payload
@@ -313,6 +319,18 @@ final class MonitorParsersTests: XCTestCase {
         XCTAssertTrue(MonitorParsers.parseNetDev("no colon here").isEmpty)
     }
 
+    func testParseNetDevBothCountersExceedUInt32Max() {
+        // Both rx and tx exceed UInt32.max (4_294_967_295). The parser uses UInt64
+        // internally; verifies no overflow/truncation occurs on either side.
+        let text = "eth1: 5000000000 1234 0 0 0 0 0 0 8000000000 5678 0 0 0 0 0 0"
+        let ifaces = MonitorParsers.parseNetDev(text)
+        XCTAssertEqual(ifaces.count, 1)
+        XCTAssertEqual(ifaces[0].rxBytes, 5_000_000_000)
+        XCTAssertEqual(ifaces[0].txBytes, 8_000_000_000)
+        XCTAssertGreaterThan(ifaces[0].rxBytes, UInt64(UInt32.max))
+        XCTAssertGreaterThan(ifaces[0].txBytes, UInt64(UInt32.max))
+    }
+
     func testParseDFFiltersPseudoFilesystems() {
         let disks = MonitorParsers.parseDF("""
         Filesystem     1024-blocks      Used Available Capacity Mounted on
@@ -384,6 +402,58 @@ final class MonitorParsersTests: XCTestCase {
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows[0].pid, 1234)
         XCTAssertEqual(rows[0].command, "mysqld")
+    }
+
+    // MARK: - diskstats
+
+    func testParseDiskStatsParsesWholeDisks() {
+        let text = """
+           8       0 sda 12345 678 234567 8901 2345 678 90123 4567 0 8901 13468
+           8       1 sda1 10000 500 200000 7000 2000 600 80000 4000 0 7500 11000
+          11       0 sr0 0 0 0 0 0 0 0 0 0 0 0
+         252       0 vda 5000 200 100000 3000 1000 300 40000 2000 0 3500 5000
+         252       1 vda1 4000 150 90000 2500 800 250 35000 1800 0 3000 4300
+        """
+        let counters = MonitorParsers.parseDiskStats(text)
+        let names = counters.map(\.device)
+        XCTAssertTrue(names.contains("sda"))
+        XCTAssertTrue(names.contains("vda"))
+        XCTAssertFalse(names.contains("sda1"))
+        XCTAssertFalse(names.contains("vda1"))
+        XCTAssertFalse(names.contains("sr0"))
+        // Verify sector counts for the two whole disks.
+        let sda = counters.first(where: { $0.device == "sda" })!
+        XCTAssertEqual(sda.sectorsRead, 234_567)
+        XCTAssertEqual(sda.sectorsWritten, 90_123)
+        let vda = counters.first(where: { $0.device == "vda" })!
+        XCTAssertEqual(vda.sectorsRead, 100_000)
+        XCTAssertEqual(vda.sectorsWritten, 40_000)
+    }
+
+    func testIsWholeDiskCandidateFormmcblk() {
+        // mmcblk0 is a whole eMMC/SD-card device; mmcblk0p1 is a partition.
+        // Tests the fixed behavior: the 'N' suffix on mmcblk is a card number,
+        // not a partition number, so mmcblk0 must be kept and mmcblk0p1 dropped.
+        let text = """
+        179       0 mmcblk0 1000 50 5000 200 500 30 2500 100 0 300 300
+        179       1 mmcblk0p1 800 40 4000 150 400 25 2000 80 0 250 230
+        """
+        let counters = MonitorParsers.parseDiskStats(text)
+        let names = counters.map(\.device)
+        XCTAssertTrue(names.contains("mmcblk0"), "mmcblk0 should be treated as a whole disk")
+        XCTAssertFalse(names.contains("mmcblk0p1"), "mmcblk0p1 is a partition and must be excluded")
+    }
+
+    func testIsWholeDiskCandidateFormd() {
+        // md (Linux software RAID) devices are whole-disk block devices.
+        let text = """
+          9       0 md0 2000 0 10000 0 1000 0 5000 0 0 0 0
+          9     127 md127 1500 0 7500 0 750 0 3750 0 0 0 0
+        """
+        let counters = MonitorParsers.parseDiskStats(text)
+        let names = counters.map(\.device)
+        XCTAssertTrue(names.contains("md0"), "md0 should be treated as a whole disk")
+        XCTAssertTrue(names.contains("md127"), "md127 should be treated as a whole disk")
     }
 
     // MARK: - Delta helpers
