@@ -21,8 +21,8 @@ public class HeadlessTerminal : TerminalDelegate, LocalProcessDelegate {
     public init (queue: DispatchQueue? = nil, options: TerminalOptions = TerminalOptions.default, onEnd: @escaping (_ exitCode: Int32?) -> ())
     {
         self.onEnd = onEnd
-        terminal = Terminal(delegate: self, options: options)
-        process = LocalProcess(delegate: self, dispatchQueue: queue)
+        self.process = LocalProcess(delegate: self, dispatchQueue: queue)
+        self.terminal = Terminal(delegate: self, options: options)
     }
     
     public func processTerminated(_ source: LocalProcess, exitCode: Int32?) {

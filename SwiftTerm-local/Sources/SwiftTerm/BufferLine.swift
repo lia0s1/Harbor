@@ -207,7 +207,7 @@ public final class BufferLine: CustomDebugStringConvertible {
             for i in len..<cols {
                 newBuf.initializeElement(at: i, to: fillData)
             }
-            data.deinitialize(count: len)
+            data.deinitialize()
             data.deallocate()
             data = newBuf
             dataSize = cols

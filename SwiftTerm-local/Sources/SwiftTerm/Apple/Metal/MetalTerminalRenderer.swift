@@ -2260,7 +2260,7 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         switch kittyImage.payload {
         case .png(let data):
             do { texture = try textureLoader.newTexture(data: data, options: textureOptions()) }
-            catch { print("SwiftTerm/Metal: kitty png texture failed: \(error)") }
+            catch { print("SwiftTerm/Metal: kitty png texture failed: \(error)"); texture = nil }
         case .rgba(let bytes, let width, let height):
             texture = textureFromRGBA(bytes: bytes, width: width, height: height)
         }

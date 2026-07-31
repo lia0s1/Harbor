@@ -45,6 +45,7 @@ public class TerminalDebugView: NSView {
     
     required init?(coder: NSCoder) {
         print("SwiftTerm/TerminalDebugView: loaded from nib/storyboard unexpectedly, using default init")
+        dbg = NSTextField(frame: .zero)
         super.init(coder: coder)
     }
     

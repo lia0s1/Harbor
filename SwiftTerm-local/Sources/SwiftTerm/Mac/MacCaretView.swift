@@ -18,7 +18,7 @@ import CoreText
 class CaretView: NSView, CALayerDelegate {
     weak var terminal: TerminalView?
     var ctline: CTLine?
-    var bgColor: CGColor
+    var bgColor: CGColor = NSColor.clear.cgColor
     var tracksFocus = true
     
     public init (frame: CGRect, cursorStyle: CursorStyle, terminal: TerminalView)
