@@ -34,6 +34,7 @@ class CaretView: NSView, CALayerDelegate {
 
     required init?(coder: NSCoder) {
         print("SwiftTerm/CaretView(Mac): loaded from nib/storyboard unexpectedly, using default init")
+        style = .steadyBlock
         super.init(coder: coder)
     }
 

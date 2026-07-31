@@ -514,7 +514,7 @@ struct RemoteFilePane: View {
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
         }
-        .onKeyPress(endKeyEquivalent) {
+        .onKeyPress(KeyEquivalent(Character(UnicodeScalar(0xF705) ?? "?"))) {
             guard selection.count == 1, let entry = selectedEntries.first else {
                 return .ignored
             }

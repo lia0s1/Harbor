@@ -44,9 +44,9 @@ public class TerminalDebugView: NSView {
     }
     
     required init?(coder: NSCoder) {
-        print("SwiftTerm/TerminalDebugView: loaded from nib/storyboard unexpectedly, using default init")
-        dbg = NSTextField(frame: .zero)
-        super.init(coder: coder)
+        // TerminalDebugView is always created programmatically; nib loading is a programmer error.
+        // fatalError is the correct Swift idiom for this design contract.
+        fatalError("init(coder:) has not been implemented")
     }
     
     func getDebugString (line _line: BufferLine?, cols: Int, prefix: String = "", hilight: Bool, col: Int) -> NSAttributedString

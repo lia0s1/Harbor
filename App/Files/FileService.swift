@@ -236,7 +236,12 @@ final class FileService: ObservableObject {
         remoteProgressTasks.removeAll()
         // Stop external-editor sync (and remove their temp dirs); over a dead
         // socket uploads only fail.
-        for session in editSessions { session.cancel() }
+        let sessions = editSessions
+        if !sessions.isEmpty {
+            DispatchQueue.main.async {
+                for session in sessions { session.cancel() }
+            }
+        }
         editSessions.removeAll()
         listGeneration += 1
         isLoading = false
@@ -251,7 +256,12 @@ final class FileService: ObservableObject {
         for task in transferTasks.values { task.cancel() }
         for timer in progressPollers.values { timer.invalidate() }
         for task in remoteProgressTasks.values { task.cancel() }
-        for session in editSessions { session.cancel() }
+        let sessions = editSessions
+        if !sessions.isEmpty {
+            DispatchQueue.main.async {
+                for session in sessions { session.cancel() }
+            }
+        }
     }
 
     private func prepare() async {

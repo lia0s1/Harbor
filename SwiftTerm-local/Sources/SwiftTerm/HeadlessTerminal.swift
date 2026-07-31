@@ -13,16 +13,16 @@ import Foundation
 /// `terminal` from this class.
 ///
 public class HeadlessTerminal : TerminalDelegate, LocalProcessDelegate {
-    public private(set) var terminal: Terminal
-    public var process: LocalProcess
+    public private(set) var terminal: Terminal!
+    public var process: LocalProcess!
     var onEnd: (_ exitCode: Int32?) -> ()
     var dir: String?
     
     public init (queue: DispatchQueue? = nil, options: TerminalOptions = TerminalOptions.default, onEnd: @escaping (_ exitCode: Int32?) -> ())
     {
         self.onEnd = onEnd
-        self.process = LocalProcess(delegate: self, dispatchQueue: queue)
-        self.terminal = Terminal(delegate: self, options: options)
+        terminal = Terminal(delegate: self, options: options)
+        process = LocalProcess(delegate: self, dispatchQueue: queue)
     }
     
     public func processTerminated(_ source: LocalProcess, exitCode: Int32?) {
