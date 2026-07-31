@@ -46,8 +46,8 @@ enum TOTPGenerator {
     // MARK: - HOTP / TOTP
 
     /// The HOTP value for a specific counter (RFC 4226 §5).
-    static func hotp(secret: Data, counter: UInt64, digits: Int = digits) -> String {
-        precondition((1...9).contains(digits), "TOTPGenerator: digits must be between 1 and 9, got \(digits)")
+    static func hotp(secret: Data, counter: UInt64, digits: Int = digits) -> String? {
+        guard (1...9).contains(digits) else { return nil }
         var counterBE = counter.bigEndian
         let message = Data(bytes: &counterBE, count: MemoryLayout<UInt64>.size)
 

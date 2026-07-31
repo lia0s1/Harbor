@@ -2219,15 +2219,18 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         }
         var texture: MTLTexture?
         if let cgImage = cgImage(from: image.image) {
-            texture = try? textureLoader.newTexture(cgImage: cgImage, options: textureOptions())
+            do { texture = try textureLoader.newTexture(cgImage: cgImage, options: textureOptions()) }
+            catch { print("SwiftTerm/Metal: texture from cgImage failed: \(error)") }
         }
         #if os(macOS)
         if texture == nil, let data = image.image.tiffRepresentation {
-            texture = try? textureLoader.newTexture(data: data, options: textureOptions())
+            do { texture = try textureLoader.newTexture(data: data, options: textureOptions()) }
+            catch { print("SwiftTerm/Metal: texture from tiffRepresentation failed: \(error)") }
         }
         #else
         if texture == nil, let data = image.image.pngData() {
-            texture = try? textureLoader.newTexture(data: data, options: textureOptions())
+            do { texture = try textureLoader.newTexture(data: data, options: textureOptions()) }
+            catch { print("SwiftTerm/Metal: texture from pngData failed: \(error)") }
         }
         #endif
         if let texture {
@@ -2256,7 +2259,8 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         let texture: MTLTexture?
         switch kittyImage.payload {
         case .png(let data):
-            texture = try? textureLoader.newTexture(data: data, options: textureOptions())
+            do { texture = try textureLoader.newTexture(data: data, options: textureOptions()) }
+            catch { print("SwiftTerm/Metal: kitty png texture failed: \(error)") }
         case .rgba(let bytes, let width, let height):
             texture = textureFromRGBA(bytes: bytes, width: width, height: height)
         }
@@ -2565,7 +2569,10 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = vertex
         descriptor.fragmentFunction = fragment
-        let attachment = descriptor.colorAttachments[0]!
+        guard let attachment = descriptor.colorAttachments[0] else {
+            print("SwiftTerm/Metal: colorAttachments[0] is nil in makeTextPipeline")
+            return nil
+        }
         attachment.pixelFormat = view.colorPixelFormat
         attachment.isBlendingEnabled = true
         attachment.rgbBlendOperation = .add
@@ -2574,7 +2581,12 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
         attachment.sourceAlphaBlendFactor = .one
         attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
-        return try? device.makeRenderPipelineState(descriptor: descriptor)
+        do {
+            return try device.makeRenderPipelineState(descriptor: descriptor)
+        } catch {
+            print("SwiftTerm/Metal: makeTextPipeline failed: \(error)")
+            return nil
+        }
     }
 
     private static func makeColorPipeline(device: MTLDevice,
@@ -2589,7 +2601,10 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = vertex
         descriptor.fragmentFunction = fragment
-        let attachment = descriptor.colorAttachments[0]!
+        guard let attachment = descriptor.colorAttachments[0] else {
+            print("SwiftTerm/Metal: colorAttachments[0] is nil in makeColorPipeline")
+            return nil
+        }
         attachment.pixelFormat = view.colorPixelFormat
         attachment.isBlendingEnabled = true
         attachment.rgbBlendOperation = .add
@@ -2598,7 +2613,12 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
         attachment.sourceAlphaBlendFactor = .one
         attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
-        return try? device.makeRenderPipelineState(descriptor: descriptor)
+        do {
+            return try device.makeRenderPipelineState(descriptor: descriptor)
+        } catch {
+            print("SwiftTerm/Metal: makeColorPipeline failed: \(error)")
+            return nil
+        }
     }
 
     private func isBlinkStyle(_ style: CursorStyle) -> Bool {
@@ -2707,13 +2727,13 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
 
     private static func loadShaderSource() -> String? {
         for bundle in candidateBundles() {
-            if let url = bundle.url(forResource: "Shaders", withExtension: "metal"),
-               let source = try? String(contentsOf: url, encoding: .utf8) {
-                return source
+            if let url = bundle.url(forResource: "Shaders", withExtension: "metal") {
+                do { return try String(contentsOf: url, encoding: .utf8) }
+                catch { print("SwiftTerm/Metal: failed to load Shaders.metal: \(error)") }
             }
-            if let url = bundle.url(forResource: "Shaders.metal", withExtension: "txt"),
-               let source = try? String(contentsOf: url, encoding: .utf8) {
-                return source
+            if let url = bundle.url(forResource: "Shaders.metal", withExtension: "txt") {
+                do { return try String(contentsOf: url, encoding: .utf8) }
+                catch { print("SwiftTerm/Metal: failed to load Shaders.metal.txt: \(error)") }
             }
         }
         return nil
@@ -2724,10 +2744,13 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
             if let url = bundle.url(forResource: "default", withExtension: "metallib") {
                 return url
             }
-            if let resourceURL = bundle.resourceURL,
-               let urls = try? FileManager.default.contentsOfDirectory(at: resourceURL,
-                                                                       includingPropertiesForKeys: nil,
-                                                                       options: [.skipsHiddenFiles]) {
+            if let resourceURL = bundle.resourceURL {
+                let urls: [URL]
+                do { urls = try FileManager.default.contentsOfDirectory(at: resourceURL,
+                                                                         includingPropertiesForKeys: nil,
+                                                                         options: [.skipsHiddenFiles]) }
+                catch { print("SwiftTerm/Metal: contentsOfDirectory failed for \(resourceURL): \(error)"); continue }
+                // Search urls for metallib
                 if let match = urls.first(where: { $0.pathExtension == "metallib" }) {
                     return match
                 }

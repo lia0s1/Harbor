@@ -286,6 +286,11 @@ public protocol TerminalImage {
  * that is provided in the constructor call.
  */
 open class Terminal {
+    /// Guaranteed-valid UnicodeScalar for the ASCII space character (0x20).
+    static let fallbackSpaceScalar: UnicodeScalar = {
+        UnicodeScalar(32)!
+    }()
+
     public enum ProgressReportState: Int {
         case remove = 0
         case set = 1
@@ -1206,9 +1211,9 @@ open class Terminal {
                     
                     // Notice that the charset mapping can contain the dutch unicode sequence for "ij",
                     // so it is not a simple byte, it is a Character
-                    if let str = charset! [UInt8 (code)] {
-                        ch = str.first!
-                        
+                    if let str = charset! [UInt8 (code)], let firstCh = str.first {
+                        ch = firstCh
+
                         // Every single mapping in the charset only takes one slot
                         chWidth = 1
                         let charData = makeCharData (attribute: curAttr, char: ch, size: Int8 (chWidth))
@@ -2685,7 +2690,13 @@ open class Terminal {
         if collect.count > 0 && collect == [UInt8 (ascii: "$")] {
             // DECFRA
             if let (top, left, bottom, right) = getRectangleFromRequest(pars [1...]) {
-                let scalar = UnicodeScalar (pars [0]) ?? UnicodeScalar (32)!
+                let scalar: UnicodeScalar
+                if let parsed = UnicodeScalar(pars[0]) {
+                    scalar = parsed
+                } else {
+                    log("DECFRA: invalid codepoint \(pars[0]), falling back to space")
+                    scalar = Terminal.fallbackSpaceScalar
+                }
                 let fillData = makeCharData (attribute: curAttr, scalar: scalar, size: 1)
                 for row in top...bottom {
                     let line = buffer.lines [row+buffer.yBase]
@@ -5683,8 +5694,13 @@ open class Terminal {
     static var matchColorCache : [Int:Int] = [:]
     func matchColor (_ r1: Int, _ g1: Int, _ b1: Int) -> Int32
     {
-        // TODO
+#if DEBUG
         abort ()
+#else
+        // Fallback: return default color (ANSI white) rather than crashing
+        log("matchColor not implemented; returning default color")
+        return 7
+#endif
     }
     
     var terminalTitle: String = ""              // The Xterm terminal title
@@ -5779,7 +5795,7 @@ open class Terminal {
     public static func getEnvironmentVariables (termName: String? = nil, trueColor: Bool = true) -> [String]
     {
         var l : [String] = []
-        let t = termName == nil ? "xterm-256color" : termName!
+        let t = termName ?? "xterm-256color"
         l.append ("TERM=\(t)")
         if trueColor {
             l.append ("COLORTERM=truecolor")
@@ -6154,7 +6170,12 @@ open class Terminal {
             trailingSpacesAtEOL
 
         let regex = schemeURLBranch + "|" + rootedOrRelativePathBranch + "|" + bareRelativePathBranch
-        return try? NSRegularExpression(pattern: regex, options: [])
+        do {
+            return try NSRegularExpression(pattern: regex, options: [])
+        } catch {
+            print("SwiftTerm/Terminal: failed to compile URL regex: \(error)")
+            return nil
+        }
     }()
 
     private static let ghosttyContinuationCharacters = CharacterSet(

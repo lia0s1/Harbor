@@ -15,10 +15,10 @@ struct RemoteExec: Sendable {
     /// `ssh -O check`: true when the master at the socket is alive, so
     /// auxiliary commands will multiplex over it.
     func checkSocket(timeout: TimeInterval = 5) async -> Bool {
-        let argv = SSHCommandBuilder.controlCheckCommand(
+        guard let argv = try? SSHCommandBuilder.controlCheckCommand(
             controlSocketPath: controlSocketPath,
             destination: destination
-        )
+        ) else { return false }
         let result = await AuxProcess.run(argv: argv, timeout: timeout)
         return !result.timedOut && result.exitCode == 0
     }
@@ -26,12 +26,12 @@ struct RemoteExec: Sendable {
     /// Runs one remote script (always a single argv element; the remote
     /// shell parses it) over the multiplexed connection.
     func run(_ remoteScript: String, timeout: TimeInterval = 5) async -> AuxProcess.Output {
-        let argv = SSHCommandBuilder.auxiliaryCommand(
+        guard let argv = try? SSHCommandBuilder.auxiliaryCommand(
             controlSocketPath: controlSocketPath,
             destination: destination,
             remoteScript: remoteScript,
             port: port
-        )
+        ) else { return AuxProcess.Output(exitCode: 1, stdout: Data(), stderr: Data(), timedOut: false) }
         return await AuxProcess.run(argv: argv, timeout: timeout)
     }
 
@@ -64,11 +64,11 @@ struct RemoteExec: Sendable {
     /// Runs an sftp batch (one command per line, built with `SFTPBatch`) over
     /// the multiplexed connection, fed via stdin.
     func runSFTPBatch(_ batch: String, timeout: TimeInterval) async -> AuxProcess.Output {
-        let argv = SSHCommandBuilder.sftpBatchCommand(
+        guard let argv = try? SSHCommandBuilder.sftpBatchCommand(
             controlSocketPath: controlSocketPath,
             destination: destination,
             port: port
-        )
+        ) else { return AuxProcess.Output(exitCode: 1, stdout: Data(), stderr: Data(), timedOut: false) }
         let payload = batch.hasSuffix("\n") ? batch : batch + "\n"
         return await AuxProcess.run(argv: argv, stdin: Data(payload.utf8), timeout: timeout)
     }

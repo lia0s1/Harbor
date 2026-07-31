@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import HarborKit
+import os.log
 
 // MARK: - Key info model
 
@@ -159,9 +160,14 @@ struct KeyManagementView: View {
         var loadedPaths = Set<String>()
         for keyInfo in keys {
             let pubPath = keyInfo.pubKeyPath
-            guard FileManager.default.fileExists(atPath: pubPath),
-                  let pubContent = try? String(contentsOfFile: pubPath, encoding: .utf8)
-            else { continue }
+            guard FileManager.default.fileExists(atPath: pubPath) else { continue }
+            let pubContent: String
+            do {
+                pubContent = try String(contentsOfFile: pubPath, encoding: .utf8)
+            } catch {
+                os_log(.error, "Failed to read public key at %{public}@: %{public}@", pubPath, error.localizedDescription)
+                continue
+            }
             // Extract the base64 key part (middle field in "type key comment")
             let parts = pubContent.split(separator: " ", omittingEmptySubsequences: true)
             guard parts.count >= 2 else { continue }
@@ -292,7 +298,11 @@ private struct KeyRowView: View {
     }
 
     private func copyPubKey() {
-        guard let content = try? String(contentsOfFile: key.pubKeyPath, encoding: .utf8) else {
+        let content: String
+        do {
+            content = try String(contentsOfFile: key.pubKeyPath, encoding: .utf8)
+        } catch {
+            os_log(.error, "Failed to read public key at %{public}@ for copy: %{public}@", key.pubKeyPath, error.localizedDescription)
             return
         }
         NSPasteboard.general.clearContents()
@@ -317,7 +327,11 @@ private struct KeyRowView: View {
             }
         }
         for url in untrashed {
-            try? FileManager.default.removeItem(at: url)
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                os_log(.error, "Failed to permanently delete key file at %{public}@: %{public}@", url.path, error.localizedDescription)
+            }
         }
         onRefresh()
     }
@@ -544,9 +558,9 @@ func scanSSHDirectory(sshDir: String) -> [SSHKeyInfo] {
               !isDir.boolValue else { continue }
 
         // Check if it's a private key by reading first line
-        guard let handle = FileHandle(forReadingAtPath: fullPath),
-              let headData = try? handle.read(upToCount: 256) else { continue }
-        try? handle.close()
+        guard let handle = FileHandle(forReadingAtPath: fullPath) else { continue }
+        defer { try? handle.closeFile() }
+        guard let headData = try? handle.read(upToCount: 256) else { continue }
         let header = String(decoding: headData, as: UTF8.self)
         let firstLine = header.split(separator: "\n").first.map(String.init) ?? ""
 

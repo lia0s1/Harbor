@@ -33,7 +33,8 @@ class CaretView: NSView, CALayerDelegate {
     }
 
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        print("SwiftTerm/CaretView(Mac): loaded from nib/storyboard unexpectedly, using default init")
+        super.init(coder: coder)
     }
 
     // Enable transparency support for the cursor (matches iOS behavior)

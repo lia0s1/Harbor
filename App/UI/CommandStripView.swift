@@ -382,6 +382,15 @@ struct CommandStripView: View {
                 text = newer
                 return .handled
             }
+            // Forward Ctrl+C to the terminal PTY so the running process gets
+            // SIGINT even when the command strip field currently has focus.
+            .onKeyPress(phases: .down) { press in
+                guard press.modifiers == .control,
+                      press.key == KeyEquivalent("c"),
+                      !isExited else { return .ignored }
+                session.terminalView.send(txt: "\u{03}")
+                return .handled
+            }
             .padding(.vertical, 5)
         }
         .help("命令输入：⏎ 发送，⇥ 补全历史，↑/↓ 历史，⌘L 在终端与输入框间切换焦点")

@@ -48,6 +48,7 @@ final class PingService: ObservableObject {
     }
 
     deinit {
+        assert(Thread.isMainThread, "PingService must be deallocated on the main thread")
         restartTask?.cancel()
         process?.terminate()
     }
@@ -107,12 +108,35 @@ final class PingService: ObservableObject {
             }
         }
 
-        do {
-            try proc.run()
-            process = proc
-            isRunning = true
-        } catch {
-            scheduleRestart()
+        // Process.run() is a synchronous fork+exec — run off the main actor
+        // so a heavily-loaded kernel can't stall the UI.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            do {
+                try proc.run()
+            } catch {
+                Task { @MainActor [weak self] in
+                    self?.scheduleRestart()
+                }
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // Only install if still active AND this is still the current
+                // generation (a stop() may have landed while we were in the
+                // background queue).
+                guard self.active, launchGeneration == self.generation else {
+                    proc.terminate()
+                    return
+                }
+                // If the child died before we could register it (e.g. DNS
+                // failure that resolved faster than this main-actor hop), the
+                // termination handler already scheduled the restart — don't
+                // resurrect isRunning=true over a dead process.
+                guard proc.isRunning else { return }
+                self.process = proc
+                self.isRunning = true
+            }
         }
     }
 

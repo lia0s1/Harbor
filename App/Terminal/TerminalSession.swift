@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import HarborKit
+import os.log
 import SwiftTerm
 import UniformTypeIdentifiers
 
@@ -38,8 +39,11 @@ final class HarborTerminalView: LocalProcessTerminalView {
         // Drop our hold on the shared color panel so a later color change can't
         // message this freed view. Only if we're still the owner (the panel's
         // target is an unretained reference).
+        // Use DispatchQueue.main.async instead of MainActor.assumeIsolated so
+        // this works safely even when the last strong reference is dropped from
+        // a background queue (assumeIsolated would trap in that scenario).
         let identity = ObjectIdentifier(self)
-        MainActor.assumeIsolated {
+        DispatchQueue.main.async {
             if let owner = HarborTerminalView.colorPanelOwner,
                ObjectIdentifier(owner) == identity {
                 let panel = NSColorPanel.shared
@@ -281,6 +285,14 @@ private final class TerminalRecordingSink: @unchecked Sendable {
             handle = nil
         }
     }
+
+    deinit {
+        // Dispatch sync to drain any in-flight write before closing,
+        // matching the contract of close().
+        queue.sync { [handle] in
+            handle?.closeFile()
+        }
+    }
 }
 
 /// One live SSH session: owns its terminal NSView (created once per process
@@ -380,6 +392,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
     }
 
+    deinit {
+        recordingSink?.close()
+        runningFallbackTask?.cancel()
+    }
+
     /// Tears down the child process if it is still running.
     func terminate() {
         guard !state.isExited else { return }
@@ -434,34 +451,48 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     }
 
     /// Begins capturing terminal output to ~/Library/Logs/Harbor/<host>-<date>.log.
-    /// No-op if already recording.
+    /// No-op if already recording. File I/O runs in a detached task so a slow or
+    /// contended filesystem never blocks the main actor.
     func startRecording() {
         guard !isRecording else { return }
+        let hostname = host.hostname
         let logsDir = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Logs/Harbor", isDirectory: true)
-        try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
-        let fmt = ISO8601DateFormatter()
-        fmt.formatOptions = [.withFullDate, .withTime, .withColonSeparatorInTime]
-        let stamp = fmt.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let safe = host.hostname.replacingOccurrences(of: "/", with: "_")
-        let url = logsDir.appendingPathComponent("\(safe)-\(stamp).log")
-        guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-            NSLog("Harbor: startRecording: failed to create log file at \(url.path)")
-            return
-        }
-        let handle: FileHandle
-        do {
-            handle = try FileHandle(forWritingTo: url)
-        } catch {
-            NSLog("Harbor: startRecording: cannot open log file for writing: \(error)")
-            return
-        }
-        let sink = TerminalRecordingSink(handle: handle)
-        recordingSink = sink
-        isRecording = true
-        // The sink serializes writes independently of the UI actor.
-        (terminalView as? HarborTerminalView)?.dataInterceptor = { [weak sink] slice in
-            sink?.write(Data(slice))
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let fm = FileManager.default
+            do {
+                try fm.createDirectory(at: logsDir, withIntermediateDirectories: true)
+            } catch {
+                os_log(.error, "Failed to create Harbor log directory at %{public}@: %{public}@", logsDir.path, error.localizedDescription)
+            }
+            let fmt = ISO8601DateFormatter()
+            fmt.formatOptions = [.withFullDate, .withTime, .withColonSeparatorInTime]
+            let stamp = fmt.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let safe = hostname.replacingOccurrences(of: "/", with: "_")
+            let url = logsDir.appendingPathComponent("\(safe)-\(stamp).log")
+            guard fm.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                NSLog("Harbor: startRecording: failed to create log file at \(url.path)")
+                return
+            }
+            let handle: FileHandle
+            do {
+                handle = try FileHandle(forWritingTo: url)
+            } catch {
+                NSLog("Harbor: startRecording: cannot open log file for writing: \(error)")
+                return
+            }
+            let sink = TerminalRecordingSink(handle: handle)
+            await MainActor.run { [weak self] in
+                guard let self else {
+                    sink.close()
+                    return
+                }
+                self.recordingSink = sink
+                self.isRecording = true
+                (self.terminalView as? HarborTerminalView)?.dataInterceptor = { [weak sink] slice in
+                    sink?.write(Data(slice))
+                }
+            }
         }
     }
 

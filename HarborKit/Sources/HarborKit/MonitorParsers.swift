@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // MARK: - Models
 
@@ -643,14 +644,21 @@ public enum MonitorParsers {
 
     // MARK: - Ping
 
-    private static let pingTimeRegex: NSRegularExpression = {
+    private static let pingTimeRegex: NSRegularExpression? = {
         do { return try NSRegularExpression(pattern: #"time=([0-9]+(?:\.[0-9]+)?)\s*ms"#) }
-        catch { fatalError("pingTimeRegex pattern is invalid: \(error)") }
+        catch {
+            Logger().warning("MonitorParsers: pingTimeRegex compile failed: \(error.localizedDescription)")
+            return nil
+        }
     }()
 
     /// Extracts the latency from one line of `ping` output
     /// ("… icmp_seq=0 ttl=56 time=12.345 ms"); nil for non-reply lines.
     public static func pingLatency(line: String) -> Double? {
+        guard let pingTimeRegex else {
+            Logger().warning("MonitorParsers: pingTimeRegex is nil, ping latency unavailable")
+            return nil
+        }
         let range = NSRange(line.startIndex..., in: line)
         guard let match = pingTimeRegex.firstMatch(in: line, range: range),
               let captured = Range(match.range(at: 1), in: line)

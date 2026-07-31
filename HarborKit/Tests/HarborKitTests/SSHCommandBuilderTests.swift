@@ -281,9 +281,9 @@ final class SSHCommandBuilderTests: XCTestCase {
         XCTAssertEqual(args.last, SSHCommandBuilder.destination(for: host))
     }
 
-    func testAuxiliaryCommandShapeKeepsScriptAsSingleArgvElement() {
+    func testAuxiliaryCommandShapeKeepsScriptAsSingleArgvElement() throws {
         let script = "uname -s; echo @@HARBOR@@; cat /proc/uptime"
-        let argv = SSHCommandBuilder.auxiliaryCommand(
+        let argv = try SSHCommandBuilder.auxiliaryCommand(
             controlSocketPath: "/tmp/cm-x",
             destination: "alice@example.com",
             remoteScript: script
@@ -299,8 +299,8 @@ final class SSHCommandBuilderTests: XCTestCase {
         XCTAssertEqual(argv.last, script) // never split, never shell-quoted locally
     }
 
-    func testAuxiliaryCommandIncludesNonDefaultPort() {
-        let argv = SSHCommandBuilder.auxiliaryCommand(
+    func testAuxiliaryCommandIncludesNonDefaultPort() throws {
+        let argv = try SSHCommandBuilder.auxiliaryCommand(
             controlSocketPath: "/tmp/cm-x",
             destination: "h",
             remoteScript: "true",
@@ -311,14 +311,14 @@ final class SSHCommandBuilderTests: XCTestCase {
         XCTAssertEqual(argv[argv.index(after: p!)], "2222")
         XCTAssertEqual(Array(argv.suffix(2)), ["h", "true"])
 
-        let defaultPort = SSHCommandBuilder.auxiliaryCommand(
+        let defaultPort = try SSHCommandBuilder.auxiliaryCommand(
             controlSocketPath: "/tmp/cm-x", destination: "h", remoteScript: "true", port: 22
         )
         XCTAssertFalse(defaultPort.contains("-p"))
     }
 
-    func testControlCheckCommandShape() {
-        let argv = SSHCommandBuilder.controlCheckCommand(
+    func testControlCheckCommandShape() throws {
+        let argv = try SSHCommandBuilder.controlCheckCommand(
             controlSocketPath: "/tmp/cm-x",
             destination: "alice@example.com"
         )

@@ -384,6 +384,15 @@ struct HostEditorView: View {
         }
 
         let trimmedIdentity = identityFile.trimmingCharacters(in: .whitespaces)
+        let extraArgs = extraArgsText.split(whereSeparator: \.isWhitespace).map(String.init)
+        for arg in extraArgs {
+            if arg.contains(where: { $0.asciiValue.map({ $0 < 32 }) ?? false }) {
+                return .failure(ValidationFailure(message: L("额外参数不能包含控制字符。")))
+            }
+            if arg.count > 256 {
+                return .failure(ValidationFailure(message: L("每个额外参数不能超过 256 个字符。")))
+            }
+        }
         let host = SSHHost(
             id: hostID,
             name: name.trimmingCharacters(in: .whitespaces),
@@ -391,7 +400,7 @@ struct HostEditorView: View {
             port: port,
             username: username.trimmingCharacters(in: .whitespaces),
             identityFile: trimmedIdentity.isEmpty ? nil : trimmedIdentity,
-            extraArgs: extraArgsText.split(whereSeparator: \.isWhitespace).map(String.init),
+            extraArgs: extraArgs,
             portForwards: portForwards,
             tags: parsedTags,
             notes: notes,

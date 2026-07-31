@@ -66,7 +66,7 @@ public protocol LocalProcessTerminalViewDelegate: AnyObject {
  */
 open class LocalProcessTerminalView: TerminalView, TerminalViewDelegate, LocalProcessDelegate {
     
-    public internal(set) var process: LocalProcess!
+    public private(set) lazy var process: LocalProcess = LocalProcess(delegate: self)
 
     public override init (frame: CGRect)
     {
@@ -83,7 +83,7 @@ open class LocalProcessTerminalView: TerminalView, TerminalViewDelegate, LocalPr
     func setup ()
     {
         terminalDelegate = self
-        process = LocalProcess (delegate: self)
+        _ = process // trigger lazy initialization
     }
     
     /**

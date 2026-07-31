@@ -47,7 +47,7 @@ public final class Buffer {
     public var yDisp: Int {
         get { return _yDisp }
         set {
-            if _yDisp < 0 {
+            if newValue < 0 {
                 #if DEBUG
                 abort()
                 #else
@@ -255,7 +255,9 @@ public final class Buffer {
     private var marginMode: Bool = false
     private var wraparound: Bool = false
     var scroll: (_ isWrapped: Bool)->() = { x in
-        fatalError("This should be set after creating a buffer")
+        // Safe default: log the error rather than crashing if scroll is somehow triggered
+        // before being set. The init() method and all factory paths set this immediately.
+        print("Buffer.scroll was invoked before being configured; ignoring scroll request")
     }
     
     func setInsertMode(_ value: Bool) {
@@ -290,11 +292,16 @@ public final class Buffer {
         
         let len = hasScrollback ? (scrollback ?? 0) + rows : rows
         _lines = CircularBufferLineList (maxLength: len)
-        _lines.makeEmpty = { [unowned self] line in getBlankLine(attribute: CharData.defaultAttr, isWrapped: false) }
+        _lines.makeEmpty = { [weak self] line in
+            guard let self = self else {
+                return BufferLine(cols: 80, fillData: CharData(attribute: CharData.defaultAttr))
+            }
+            return getBlankLine(attribute: CharData.defaultAttr, isWrapped: false)
+        }
         setupLinesCallbacks()
         setupTabStops (tabStopWidth: tabStopWidth)
     }
-        
+
     public func getCorrectBufferLength (_ rows: Int) -> Int
     {
         if hasScrollback {
@@ -357,7 +364,12 @@ public final class Buffer {
         y = 0
 
         _lines = CircularBufferLineList (maxLength: getCorrectBufferLength(rows))
-        _lines.makeEmpty = { [unowned self] line in getBlankLine(attribute: CharData.defaultAttr, isWrapped: false) }
+        _lines.makeEmpty = { [weak self] line in
+            guard let self = self else {
+                return BufferLine(cols: 80, fillData: CharData(attribute: CharData.defaultAttr))
+            }
+            return getBlankLine(attribute: CharData.defaultAttr, isWrapped: false)
+        }
         setupLinesCallbacks()
         _linesWithImagesCount = 0
         scrollTop = 0
@@ -515,7 +527,9 @@ public final class Buffer {
                 let line = lines [i]
                 if line.count < newCols {
                     print ("stop here newCols=\(newCols) but the element has: \(line.count)")
+                    #if DEBUG
                     abort ()
+                    #endif
                 }
             }
         }
@@ -682,6 +696,7 @@ public final class Buffer {
             while i < lines.count && nextLine.isWrapped {
                 wrappedLines.append (nextLine)
                 i += 1
+                guard i < lines.count else { break }
                 nextLine = lines [i]
             }
 
@@ -795,7 +810,12 @@ public final class Buffer {
 
             // Apply the new layout
             let newLayoutLines = CircularBufferLineList (maxLength: lines.count)
-            newLayoutLines.makeEmpty = { [unowned self] line in getBlankLine(attribute: CharData.defaultAttr, isWrapped: false) }
+            newLayoutLines.makeEmpty = { [weak self] line in
+                guard let self = self else {
+                    return BufferLine(cols: 80, fillData: CharData(attribute: CharData.defaultAttr))
+                }
+                return getBlankLine(attribute: CharData.defaultAttr, isWrapped: false)
+            }
             for i in 0..<layout.count {
                   newLayoutLines.push (lines [layout [i]])
             }

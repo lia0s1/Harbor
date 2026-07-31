@@ -216,15 +216,47 @@ struct MCPServer {
             .appendingPathComponent("Harbor/hosts.json")
         self.limits = limits
         self.authorization = authorization
-        try? FileManager.default.createDirectory(
-            atPath: self.socketDir,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700 as AnyObject]
-        )
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: self.socketDir
-        )
+        do {
+            try FileManager.default.createDirectory(
+                atPath: self.socketDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            fputs("HarborMCP: failed to create socket directory at \(self.socketDir): \(error.localizedDescription)\n", stderr)
+            fatalError("Cannot create socket directory with secure permissions (0700): \(error.localizedDescription)")
+        }
+
+        // Re-assert 0700 even when directory already existed (setAttributes covers
+        // the path where createDirectory was a no-op because the dir was already
+        // there with wrong permissions).
+        do {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: self.socketDir
+            )
+        } catch {
+            fputs("HarborMCP: failed to set permissions on socket directory at \(self.socketDir): \(error.localizedDescription)\n", stderr)
+            fatalError("Cannot set secure permissions (0700) on socket directory: \(error.localizedDescription)")
+        }
+
+        // Verify: the directory must exist and have mode 0700 after creation.
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: self.socketDir, isDirectory: &isDir), isDir.boolValue else {
+            fputs("HarborMCP: socket directory does not exist or is not a directory: \(self.socketDir)\n", stderr)
+            fatalError("Socket directory does not exist or is not a directory: \(self.socketDir)")
+        }
+        do {
+            let attrs = try FileManager.default.attributesOfItem(atPath: self.socketDir)
+            let perms = (attrs[.posixPermissions] as? Int) ?? -1
+            guard perms == 0o700 else {
+                fputs("HarborMCP: socket directory has insecure permissions 0o\(String(perms, radix: 8)) instead of 0o700 at \(self.socketDir)\n", stderr)
+                fatalError("Socket directory has insecure permissions (expected 0700): \(self.socketDir)")
+            }
+        } catch {
+            fputs("HarborMCP: cannot verify permissions on socket directory at \(self.socketDir): \(error.localizedDescription)\n", stderr)
+            fatalError("Cannot verify socket directory permissions: \(error.localizedDescription)")
+        }
     }
 
     mutating func run() {
@@ -996,15 +1028,18 @@ struct MCPServer {
         let host = try stringArg(args, "host", maxBytes: 512)
         let resolved = try authorizedHost(host)
         let path = try stringArg(args, "path", maxBytes: 4_096)
-        // Guard against huge files: check byte count before reading.
-        let sizeOut = try ssh(resolved: resolved, command: "wc -c < \(sq(path))")
-        guard let byteCount = Int64(sizeOut.trimmed), byteCount >= 0 else {
-            throw MCPError("无法确认远程文件大小")
-        }
-        if byteCount > limits.processOutputBytes {
-            throw MCPError("文件超过读取大小上限，请使用 SFTP 下载")
-        }
-        return try ssh(resolved: resolved, command: "cat \(sq(path))")
+        let maxBytes = limits.processOutputBytes
+        // Single atomic remote command: symlink check, size check, and read
+        // all happen in one SSH invocation to close the TOCTOU window.
+        let target = sq(path)
+        let command = """
+        target=\(target)
+        if [ -L "$target" ]; then echo 'HARBOR_MCP_ERR: refusing to read symbolic link' >&2; exit 1; fi
+        sz=$(wc -c < "$target") || { echo 'HARBOR_MCP_ERR: cannot stat file' >&2; exit 1; }
+        if [ "$sz" -gt \(maxBytes) ]; then echo "HARBOR_MCP_ERR: file too large ($sz bytes, max \(maxBytes))" >&2; exit 1; fi
+        cat "$target"
+        """
+        return try ssh(resolved: resolved, command: command)
     }
 
     struct RemoteWriteRequest {
@@ -1045,9 +1080,8 @@ struct MCPServer {
         tmp=$(mktemp "$dir/.harbor-mcp.XXXXXX") || exit 1
         trap 'rm -f -- "$tmp"' EXIT HUP INT TERM
         cat > "$tmp" || exit 1
-        if [ -L "$target" ]; then echo 'refusing to replace symbolic link' >&2; exit 1; fi
         if [ -e "$target" ]; then chmod --reference="$target" "$tmp" || exit 1; fi
-        mv -f -- "$tmp" "$target" || exit 1
+        { mv -T -- "$tmp" "$target" 2>/dev/null; } || { if [ -L "$target" ]; then echo 'refusing to replace symbolic link' >&2; exit 1; fi; mv -f -- "$tmp" "$target"; } || exit 1
         trap - EXIT HUP INT TERM
         """
         return RemoteWriteRequest(host: host, path: path, command: command, input: input)

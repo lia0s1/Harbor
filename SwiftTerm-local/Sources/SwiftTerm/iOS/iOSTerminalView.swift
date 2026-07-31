@@ -217,6 +217,12 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     var attrStrBuffer: CircularList<ViewLineInfo>!
     var images:[(image: TerminalImage, col: Int, row: Int)] = []
 
+    /// Serial queue that serializes calls to feed() so the thread-safe
+    /// guarantee in its documentation is actually upheld.  Without this,
+    /// concurrent feed() calls would race on selection.active, search
+    /// invalidation, and display-update state.
+    let feedSyncQueue = DispatchQueue(label: "org.tirania.SwiftTerm.TerminalView.feed")
+
     // Attribute dictionary, maps a console attribute (color, flags) to the corresponding dictionary
     // of attributes for an NSAttributedString
     var attributes: [Attribute: [NSAttributedString.Key:Any]] = [:]
@@ -792,14 +798,15 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             let w = 80
             let h = 80
             let f = frame
-            directionView = UIView (
-                frame: CGRect (x: (Int (f.width)-w)/2,
-                               y: (Int(f.height)-w)/2,
-                               width: w,
-                               height: h))
-            addSubview(directionView!)
+            let newView = UIView(
+                frame: CGRect(x: (Int(f.width)-w)/2,
+                              y: (Int(f.height)-w)/2,
+                              width: w,
+                              height: h))
+            directionView = newView
+            addSubview(newView)
         }
-        let dv = directionView!
+        guard let dv = directionView else { return directionView ?? UIView() }
         dv.backgroundColor = UIColor.gray
         dv.alpha = 0.5
         
@@ -1807,7 +1814,11 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
 
     private func kittyBaseLayoutKey(for keyCode: UIKeyboardHIDUsage) -> UnicodeScalar? {
         func scalar(_ char: Character) -> UnicodeScalar {
-            char.unicodeScalars.first!
+            guard let s = char.unicodeScalars.first else {
+                // All callers pass known ASCII literals; U+0020 is always valid.
+                return " "
+            }
+            return s
         }
         switch keyCode {
         case .keyboardA: return scalar("a")

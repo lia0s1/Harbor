@@ -19,16 +19,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // before the first session can spawn ssh.
         ControlMasterSupport.ensureCacheDirectory()
         // Remove any harbor-askpass-* temp dirs left by a previous crash before
-        // the defer cleanup could run (password files inside are 0600 and live
-        // under the per-user $TMPDIR, but shouldn't linger across launches).
-        cleanStaleAskpassDirs()
-    }
-
-    private func cleanStaleAskpassDirs() {
-        let tmp = FileManager.default.temporaryDirectory.path
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: tmp) else { return }
-        for name in entries where name.hasPrefix("harbor-askpass-") {
-            try? FileManager.default.removeItem(atPath: (tmp as NSString).appendingPathComponent(name))
+        // the defer cleanup could run. Listing /tmp can stall on systems with
+        // many temp files, so run off-actor.
+        Task.detached(priority: .background) {
+            let tmp = FileManager.default.temporaryDirectory.path
+            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: tmp) else { return }
+            for name in entries where name.hasPrefix("harbor-askpass-") {
+                try? FileManager.default.removeItem(atPath: (tmp as NSString).appendingPathComponent(name))
+            }
         }
     }
 

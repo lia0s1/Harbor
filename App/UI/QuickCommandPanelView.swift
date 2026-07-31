@@ -184,7 +184,7 @@ struct QuickCommandPanelView: View {
             }
         }
         .alert(
-            deleteTarget.map { L("删除 \u{201C}%@\u{201D}？", L($0.displayTitle)) } ?? L("删除命令？"),
+            deleteTarget.map { L("删除 \u{201C}%@\u{201D}？", $0.displayTitle) } ?? L("删除命令？"),
             isPresented: deletePresented
         ) {
             Button(L("删除"), role: .destructive) {
@@ -307,7 +307,7 @@ struct QuickCommandPanelView: View {
             HStack {
                 Image(systemName: collapsedGroups.contains(group) ? "chevron.right" : "chevron.down")
                     .font(.caption)
-                Text(L(group))
+                Text(verbatim: group)
                     .font(.caption.weight(.semibold))
                 Spacer()
                 Text("\(count)")
@@ -405,7 +405,7 @@ private struct QuickCommandRow: View {
 
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 5) {
-                            Text(L(command.displayTitle))
+                            Text(verbatim: command.displayTitle)
                                 .font(.system(size: 12.5, weight: .medium))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -498,7 +498,7 @@ private struct QuickCommandParameterSheet: View {
         VStack(alignment: .leading, spacing: DS.Space.m) {
             Text(L("填写参数"))
                 .font(.headline)
-            Text(L(prompt.command.displayTitle))
+            Text(verbatim: prompt.command.displayTitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

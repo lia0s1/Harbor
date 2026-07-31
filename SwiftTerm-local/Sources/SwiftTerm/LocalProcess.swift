@@ -276,7 +276,10 @@ public class LocalProcess {
         if usesMainQueue {
             enqueueReceivedData(b)
         } else {
-            dispatchQueue.sync {
+            // async — was .sync, which could deadlock if dispatchQueue
+            // ever blocks on readQueue (the queue this handler runs on).
+            // The I/O chain continues via io.read below regardless.
+            dispatchQueue.async {
                 self.delegate?.dataReceived(slice: b[...])
             }
         }
@@ -433,12 +436,7 @@ public class LocalProcess {
             shellArgs.insert(executable, at: 0)
         }
         
-        var env: [String]
-        if environment == nil {
-            env = Terminal.getEnvironmentVariables(termName: "xterm-256color")
-        } else {
-            env = environment!
-        }
+        let env = environment ?? Terminal.getEnvironmentVariables(termName: "xterm-256color")
 
         if let (shellPid, childfd) = PseudoTerminalHelpers.fork(andExec: executable, args: shellArgs, env: env, currentDirectory: currentDirectory, desiredWindowSize: &size) {
 #if os(macOS)

@@ -134,8 +134,8 @@ public enum SSHCommandBuilder {
         destination: String,
         remoteScript: String,
         port: Int? = nil
-    ) -> [String] {
-        assertSafeSocketPath(controlSocketPath)
+    ) throws -> [String] {
+        try validateNoSpacesOrControlCharacters(controlSocketPath, field: "controlSocketPath")
         var argv: [String] = [
             executablePath,
             "-o", "ControlMaster=no",
@@ -152,8 +152,8 @@ public enum SSHCommandBuilder {
 
     /// Full argv for `ssh -O check`: exit 0 means the master at the socket is
     /// alive and auxiliary commands will multiplex over it.
-    public static func controlCheckCommand(controlSocketPath: String, destination: String) -> [String] {
-        assertSafeSocketPath(controlSocketPath)
+    public static func controlCheckCommand(controlSocketPath: String, destination: String) throws -> [String] {
+        try validateNoSpacesOrControlCharacters(controlSocketPath, field: "controlSocketPath")
         return [
             executablePath,
             "-o", "ControlPath=\(controlSocketPath)",
@@ -174,8 +174,8 @@ public enum SSHCommandBuilder {
         controlSocketPath: String,
         destination: String,
         port: Int? = nil
-    ) -> [String] {
-        assertSafeSocketPath(controlSocketPath)
+    ) throws -> [String] {
+        try validateNoSpacesOrControlCharacters(controlSocketPath, field: "controlSocketPath")
         var argv: [String] = [
             sftpExecutablePath,
             "-b", "-",
@@ -235,7 +235,7 @@ public enum SSHCommandBuilder {
         destination: String,
         forward: PortForward
     ) throws -> [String] {
-        assertSafeSocketPath(controlSocketPath)
+        try validateNoSpacesOrControlCharacters(controlSocketPath, field: "controlSocketPath")
         let args = try forwardArguments(for: forward)
         return [executablePath, "-S", controlSocketPath, "-O", "forward"] + args + [destination]
     }
@@ -248,22 +248,12 @@ public enum SSHCommandBuilder {
         destination: String,
         forward: PortForward
     ) throws -> [String] {
-        assertSafeSocketPath(controlSocketPath)
+        try validateNoSpacesOrControlCharacters(controlSocketPath, field: "controlSocketPath")
         let args = try forwardArguments(for: forward)
         return [executablePath, "-S", controlSocketPath, "-O", "cancel"] + args + [destination]
     }
 
     // MARK: - Validation
-
-    /// Guards against a tainted socket path being passed to an auxiliary builder.
-    /// Current callers always supply a hex-derived path from ControlMasterSupport,
-    /// so this should never fire in practice. Uses preconditionFailure so the
-    /// check is active in both debug and release builds.
-    private static func assertSafeSocketPath(_ path: String) {
-        if path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
-            preconditionFailure("controlSocketPath contains control characters: \(path)")
-        }
-    }
 
     /// Rejects leading dash, whitespace, and control characters.
     static func validate(_ value: String, field: String) throws {

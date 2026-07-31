@@ -32,7 +32,7 @@ public final class BufferLine: CustomDebugStringConvertible {
 
     public init (cols: Int, fillData: CharData? = nil, isWrapped: Bool = false)
     {
-        self.fillCharacter = (fillData == nil) ? CharData.Null : fillData!
+        self.fillCharacter = fillData ?? CharData.Null
         let buf = UnsafeMutableBufferPointer<CharData>.allocate(capacity: cols)
         buf.initialize(repeating: fillCharacter)
         data = buf
@@ -207,6 +207,7 @@ public final class BufferLine: CustomDebugStringConvertible {
             for i in len..<cols {
                 newBuf.initializeElement(at: i, to: fillData)
             }
+            data.deinitialize(count: len)
             data.deallocate()
             data = newBuf
             dataSize = cols

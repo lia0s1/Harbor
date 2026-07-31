@@ -11,7 +11,7 @@ import AppKit
 public class TerminalDebugView: NSView {
     var terminalView: TerminalView
     var terminal: Terminal
-    var font = NSFont(name: "Lucida Sans Typewriter", size: 8) ?? NSFont(name: "Courier", size: 8)!
+    var font = NSFont(name: "Lucida Sans Typewriter", size: 8) ?? NSFont(name: "Courier", size: 8) ?? NSFont.monospacedSystemFont(ofSize: 8, weight: .regular)
     var height: CGFloat
     var dbg: NSTextField
     
@@ -44,7 +44,8 @@ public class TerminalDebugView: NSView {
     }
     
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        print("SwiftTerm/TerminalDebugView: loaded from nib/storyboard unexpectedly, using default init")
+        super.init(coder: coder)
     }
     
     func getDebugString (line _line: BufferLine?, cols: Int, prefix: String = "", hilight: Bool, col: Int) -> NSAttributedString

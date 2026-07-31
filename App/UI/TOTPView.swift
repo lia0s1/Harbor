@@ -269,10 +269,10 @@ private struct CountdownRing: View {
 /// Meant to sit inline (e.g. above the terminal), not as a covering overlay.
 /// Auto-dismisses after `autoDismiss` seconds.
 struct TOTPAutoFillBanner: View {
-    /// The current code to offer.
-    let code: String
-    /// Send the code to the terminal.
-    var onSend: () -> Void
+    /// The TOTP secret (Base32). Code is derived live so it never expires mid-display.
+    let secret: String
+    /// Send the current code to the terminal.
+    var onSend: (String) -> Void
     /// Dismiss the banner (also called on auto-dismiss).
     var onDismiss: () -> Void
     var autoDismiss: TimeInterval = 10
@@ -280,33 +280,36 @@ struct TOTPAutoFillBanner: View {
     @State private var dismissed = false
 
     var body: some View {
-        HStack(spacing: DS.Space.m) {
-            Image(systemName: "shield.lefthalf.filled")
-                .foregroundStyle(.orange)
-                .font(.title3)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let code = TOTPGenerator.code(base32Secret: secret, at: context.date) ?? ""
+            HStack(spacing: DS.Space.m) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .foregroundStyle(.orange)
+                    .font(.title3)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(L("检测到验证码请求，点击发送"))
-                    .font(.callout.weight(.medium))
-                Text(verbatim: TOTPStatusView.grouped(code))
-                    .font(.system(.title3, design: .monospaced).weight(.semibold))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("检测到验证码请求，点击发送"))
+                        .font(.callout.weight(.medium))
+                    Text(verbatim: TOTPStatusView.grouped(code))
+                        .font(.system(.title3, design: .monospaced).weight(.semibold))
+                }
+
+                Spacer(minLength: DS.Space.s)
+
+                Button(L("发送")) { onSend(code) }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+
+                Button {
+                    dismissed = true
+                    onDismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+                .help(L("关闭"))
             }
-
-            Spacer(minLength: DS.Space.s)
-
-            Button(L("发送")) { onSend() }
-                .buttonStyle(.glassProminent)
-                .controlSize(.small)
-                .keyboardShortcut(.defaultAction)
-
-            Button {
-                dismissed = true
-                onDismiss()
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .help(L("关闭"))
         }
         .padding(.horizontal, DS.Space.m)
         .padding(.vertical, DS.Space.s)

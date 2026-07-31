@@ -55,6 +55,15 @@ struct DualPaneFileView: View {
         service.status == .ready && sessionState == .running
     }
 
+    /// F2/End key (NSF2FunctionKey, 0xF705). Always a valid Private Use Area scalar.
+    private var endKeyEquivalent: KeyEquivalent {
+        if let scalar = UnicodeScalar(0xF705) {
+            return KeyEquivalent(Character(scalar))
+        }
+        // 0xF705 never fails; defensive fallback via Character literal
+        return KeyEquivalent("?")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -505,7 +514,7 @@ struct RemoteFilePane: View {
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
         }
-        .onKeyPress(KeyEquivalent(Character(UnicodeScalar(0xF705)!))) {
+        .onKeyPress(endKeyEquivalent) {
             guard selection.count == 1, let entry = selectedEntries.first else {
                 return .ignored
             }

@@ -238,7 +238,10 @@ extension TerminalView: UITextInput {
             textInputStorage.replaceSubrange(rangeToReplace.fullRange(in: textInputStorage), with: newText)
             // Figure out the new selection range
             let rangeStartIndex = rangeStartPosition.offset
-            let newTextRange = Range(selectedRange, in: newText)!
+            guard let newTextRange = Range(selectedRange, in: newText) else {
+                print("SwiftTerm/iOSTextInput: selectedRange \(selectedRange) is invalid for markedText of length \(newText.count)")
+                return
+            }
             let newTextRangeOffset = newText.distance(from: newText.startIndex, to: newTextRange.lowerBound)
             let newTextRangeLength = newText.distance(from: newTextRange.lowerBound, to: newTextRange.upperBound)
 

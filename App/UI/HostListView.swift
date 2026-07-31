@@ -255,7 +255,7 @@ struct HostListView: View {
         }
 
         var result = byTag.keys.sorted().map { key in
-            HostSection(title: tagTitles[key] ?? key, hosts: byTag[key]!)
+            HostSection(title: tagTitles[key] ?? key, hosts: byTag[key] ?? [])
         }
         if !untagged.isEmpty {
             result.append(HostSection(title: result.isEmpty ? L("主机") : L("未分组"), hosts: untagged))

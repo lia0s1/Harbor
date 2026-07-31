@@ -35,7 +35,8 @@ class CaretView: UIView {
     }
     
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        print("SwiftTerm/CaretView(iOS): loaded from nib/storyboard unexpectedly, using default init")
+        super.init(coder: coder)
     }
     
     var style: CursorStyle {

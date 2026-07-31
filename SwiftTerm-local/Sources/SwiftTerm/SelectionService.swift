@@ -288,7 +288,7 @@ class SelectionService: CustomDebugStringConvertible {
     public func selectAll ()
     {
         start = Position(col: 0, row: 0)
-        end = Position(col: terminal.cols-1, row: terminal.displayBuffer.lines.maxLength - 1)
+        end = Position(col: terminal.cols-1, row: max(0, terminal.displayBuffer.lines.count - 1))
         setActiveAndNotify()
     }
     

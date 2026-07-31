@@ -90,6 +90,19 @@ final class RDPService {
 
     // MARK: Connect
 
+    /// CharacterSet covering ASCII control characters (0x00–0x1F) and DEL (0x7F).
+    private static let controlCharacterSet: CharacterSet = {
+        // All values are guaranteed valid Unicode scalars; guard against
+        // the failable init as a defensive measure.
+        guard let lo = Unicode.Scalar(0x00),
+              let hi = Unicode.Scalar(0x1F),
+              let del = Unicode.Scalar(0x7F) else {
+            return CharacterSet.controlCharacters
+        }
+        return CharacterSet(charactersIn: lo ... hi)
+            .union(CharacterSet(charactersIn: del ... del))
+    }()
+
     private func validateField(_ value: String, name: String) throws {
         if value.isEmpty {
             throw NSError(domain: "HarborRDP", code: 1,
@@ -99,8 +112,7 @@ final class RDPService {
             throw NSError(domain: "HarborRDP", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "\(name) must not start with '-'"])
         }
-        let controlChars = CharacterSet(charactersIn: Unicode.Scalar(0x00)! ... Unicode.Scalar(0x1F)!)
-            .union(CharacterSet(charactersIn: Unicode.Scalar(0x7F)! ... Unicode.Scalar(0x7F)!))
+        let controlChars = Self.controlCharacterSet
         if value.unicodeScalars.contains(where: { controlChars.contains($0) }) {
             throw NSError(domain: "HarborRDP", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "\(name) must not contain control characters"])
@@ -182,16 +194,24 @@ final class RDPService {
             }
         }
 
-        do {
-            try process.run()
-            if !password.isEmpty {
-                let data = (password + "\n").data(using: .utf8) ?? Data()
-                try stdinPipe.fileHandleForWriting.write(contentsOf: data)
+        // Process.run() is a synchronous fork+exec; run off the main actor so
+        // a slow freerdp launch (probe, DNS) never stalls the UI.
+        DispatchQueue.global(qos: .userInitiated).async { [weak connection] in
+            do {
+                try process.run()
+                if !password.isEmpty {
+                    let data = (password + "\n").data(using: .utf8) ?? Data()
+                    try stdinPipe.fileHandleForWriting.write(contentsOf: data)
+                }
+                stdinPipe.fileHandleForWriting.closeFile()
+                Task { @MainActor in
+                    connection?.markRunning(process)
+                }
+            } catch {
+                Task { @MainActor in
+                    connection?.markFailed("无法启动 freerdp：\(error.localizedDescription)")
+                }
             }
-            stdinPipe.fileHandleForWriting.closeFile()
-            connection.markRunning(process)
-        } catch {
-            connection.markFailed("无法启动 freerdp：\(error.localizedDescription)")
         }
     }
 
@@ -199,9 +219,11 @@ final class RDPService {
 
     /// Opens Terminal with the brew install command pre-filled.
     func openInstallInstructions() {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", "tell application \"Terminal\" to do script \"brew install --cask freerdp\""]
-        try? p.run()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            p.arguments = ["-e", "tell application \"Terminal\" to do script \"brew install --cask freerdp\""]
+            try? p.run()
+        }
     }
 }

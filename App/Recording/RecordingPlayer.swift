@@ -97,7 +97,8 @@ final class RecordingPlayer: ObservableObject {
     // MARK: - Loading
 
     /// Opens a recording and starts playing from the beginning. Streams the
-    /// file; only small chunks are ever held in memory.
+    /// file; only small chunks are ever held in memory. File I/O runs off the
+    /// main actor so a slow filesystem never stalls the UI.
     func load(url: URL) {
         stopTimer()
         clearSearch()
@@ -105,26 +106,33 @@ final class RecordingPlayer: ObservableObject {
         try? fileHandle?.close()
         fileHandle = nil
 
-        guard let handle = try? FileHandle(forReadingFrom: url) else {
-            resetToEmpty()
-            return
-        }
-        let end = (try? handle.seekToEnd()) ?? 0
-        try? handle.seek(toOffset: 0)
-
-        fileHandle = handle
-        fileURL = url
-        totalBytes = Int(end)
-        bytesFed = 0
-        progress = 0
-        fileName = url.lastPathComponent
-
-        resetTerminal()
-        if totalBytes == 0 {
-            state = .finished
-        } else {
-            state = .playing
-            startTimer()
+        let capturedFileName = url.lastPathComponent
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let handle = try? FileHandle(forReadingFrom: url) else {
+                await MainActor.run { self?.resetToEmpty() }
+                return
+            }
+            let end = (try? handle.seekToEnd()) ?? 0
+            try? handle.seek(toOffset: 0)
+            await MainActor.run { [weak self] in
+                guard let self else {
+                    try? handle.close()
+                    return
+                }
+                self.fileHandle = handle
+                self.fileURL = url
+                self.totalBytes = Int(end)
+                self.bytesFed = 0
+                self.progress = 0
+                self.fileName = capturedFileName
+                self.resetTerminal()
+                if self.totalBytes == 0 {
+                    self.state = .finished
+                } else {
+                    self.state = .playing
+                    self.startTimer()
+                }
+            }
         }
     }
 
@@ -182,7 +190,7 @@ final class RecordingPlayer: ObservableObject {
         // the background seek is in flight (REC-2: seek/load race condition).
         let seekURL = fileURL
 
-        Task {
+        Task { [weak self] in
             // Collect all bytes up to `target` on a background thread.
             let collected: Data = await Task.detached(priority: .userInitiated) {
                 try? handle.seek(toOffset: 0)
@@ -198,6 +206,8 @@ final class RecordingPlayer: ObservableObject {
                 }
                 return result
             }.value
+
+            guard let self else { return }
 
             // Discard stale results if load() was called while we were seeking.
             guard self.fileURL == seekURL else { return }

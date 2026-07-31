@@ -13,8 +13,8 @@ import Foundation
 /// `terminal` from this class.
 ///
 public class HeadlessTerminal : TerminalDelegate, LocalProcessDelegate {
-    public private(set) var terminal: Terminal!
-    public var process: LocalProcess!
+    public private(set) var terminal: Terminal
+    public var process: LocalProcess
     var onEnd: (_ exitCode: Int32?) -> ()
     var dir: String?
     

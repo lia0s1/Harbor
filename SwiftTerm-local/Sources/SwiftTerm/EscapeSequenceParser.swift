@@ -332,7 +332,7 @@ public class EscapeSequenceParser {
     var errorHandler: (ParsingState) -> ParsingState = { (state : ParsingState) -> ParsingState in return state; }
 
     // Reference to the terminal for direct dispatch
-    unowned var terminal: Terminal?
+    weak var terminal: Terminal?
 
     var initialState: ParserState = .ground
     var currentState: ParserState = .ground

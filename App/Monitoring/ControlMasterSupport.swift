@@ -45,14 +45,16 @@ enum ControlMasterSupport {
     }
 
     /// Verifies that `path` is short enough to be used as a Unix domain socket
-    /// path (≤ 104 bytes on Darwin). Uses `precondition` so the check is NOT
-    /// stripped in release builds — a path that exceeds the limit is a
-    /// programming error that must be caught during development and will
-    /// surface immediately in production rather than silently producing a
-    /// broken socket.
+    /// path (≤ 104 bytes on Darwin). Logs a warning when the limit is exceeded
+    /// so the socket operation can fail gracefully rather than terminating the
+    /// app. `assertionFailure` in debug builds catches the issue during
+    /// development.
     static func assertSafeSocketPath(_ path: String) {
         let byteCount = path.utf8.count
-        precondition(byteCount <= 104,
-            "Harbor: socket path exceeds 104-byte Unix limit (\(byteCount) bytes): \(path)")
+        guard byteCount <= 104 else {
+            NSLog("Harbor: socket path exceeds 104-byte Unix limit (\(byteCount) bytes): \(path)")
+            assertionFailure("Harbor: socket path exceeds 104-byte Unix limit (\(byteCount) bytes): \(path)")
+            return
+        }
     }
 }

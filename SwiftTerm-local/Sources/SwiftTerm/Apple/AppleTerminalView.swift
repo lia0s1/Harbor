@@ -1929,17 +1929,21 @@ extension TerminalView {
     /// Sends data to the terminal emulator for interpretation, this can be invoked from a background thread
     public func feed (byteArray: ArraySlice<UInt8>)
     {
-        feedPrepare()
-        terminal.feed (buffer: byteArray)
-        feedFinish()
+        feedSyncQueue.sync {
+            feedPrepare()
+            terminal.feed (buffer: byteArray)
+            feedFinish()
+        }
     }
-    
+
     /// Sends data to the terminal emulator for interpretation, this can be invoked from a background thread
     public func feed (text: String)
     {
-        feedPrepare()
-        terminal.feed (text: text)
-        feedFinish()
+        feedSyncQueue.sync {
+            feedPrepare()
+            terminal.feed (text: text)
+            feedFinish()
+        }
     }
          
     /**

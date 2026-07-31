@@ -196,6 +196,11 @@ final class RemoteEditSession {
         self.onEnd = onEnd
     }
 
+    deinit {
+        timer?.invalidate()
+        uploadTask?.cancel()
+    }
+
     func start() {
         lastModified = modifiedDate()
         NSWorkspace.shared.open(localURL)

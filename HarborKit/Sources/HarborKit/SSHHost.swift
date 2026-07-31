@@ -98,19 +98,19 @@ public struct SSHHost: Codable, Identifiable, Hashable, Sendable {
         // one corrupt id would otherwise drop every saved host. Fall back to a
         // fresh id for that one entry instead.
         id = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
-        hostname = try c.decodeIfPresent(String.self, forKey: .hostname) ?? ""
-        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? SSHHost.defaultPort
-        username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
-        identityFile = try c.decodeIfPresent(String.self, forKey: .identityFile)
-        extraArgs = try c.decodeIfPresent([String].self, forKey: .extraArgs) ?? []
-        portForwards = try c.decodeIfPresent([PortForward].self, forKey: .portForwards) ?? []
-        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
-        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        hostname = (try? c.decodeIfPresent(String.self, forKey: .hostname)) ?? ""
+        port = (try? c.decodeIfPresent(Int.self, forKey: .port)) ?? SSHHost.defaultPort
+        username = (try? c.decodeIfPresent(String.self, forKey: .username)) ?? ""
+        identityFile = try? c.decodeIfPresent(String.self, forKey: .identityFile)
+        extraArgs = (try? c.decodeIfPresent([String].self, forKey: .extraArgs)) ?? []
+        portForwards = (try? c.decodeIfPresent([PortForward].self, forKey: .portForwards)) ?? []
+        tags = (try? c.decodeIfPresent([String].self, forKey: .tags)) ?? []
+        notes = (try? c.decodeIfPresent(String.self, forKey: .notes)) ?? ""
         osID = try? c.decodeIfPresent(String.self, forKey: .osID)
         osName = try? c.decodeIfPresent(String.self, forKey: .osName)
         connectionProtocol = (try? c.decodeIfPresent(ConnectionProtocol.self, forKey: .connectionProtocol)) ?? .ssh
-        rdpDomain = try c.decodeIfPresent(String.self, forKey: .rdpDomain) ?? ""
-        shell = try c.decodeIfPresent(String.self, forKey: .shell) ?? ""
+        rdpDomain = (try? c.decodeIfPresent(String.self, forKey: .rdpDomain)) ?? ""
+        shell = (try? c.decodeIfPresent(String.self, forKey: .shell)) ?? ""
     }
 }

@@ -246,6 +246,7 @@ final class SearchEngine {
         if options.regex {
             let regexOptions: NSRegularExpression.Options = options.caseSensitive ? [] : [.caseInsensitive]
             guard let regex = try? NSRegularExpression(pattern: term, options: regexOptions) else {
+                print("SwiftTerm/SearchEngine: failed to compile regex pattern '\(term)'")
                 return nil
             }
             let clampedOffset = min(offset, stringLine.count)

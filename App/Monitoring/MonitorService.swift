@@ -496,13 +496,14 @@ final class MonitorService: ObservableObject {
         guard UserDefaults.standard.bool(forKey: MonitorAlertPreference.systemNotificationsKey) else { return }
         for alert in alerts {
             let key = "\(exec.destination):\(exec.port):\(alert.kind.rawValue)"
-            Task {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 let center = UNUserNotificationCenter.current()
                 guard (await center.notificationSettings()).authorizationStatus == .authorized else { return }
                 // The condition may have cleared while waiting for the
                 // notification service, especially on the first permission
                 // request. Do not deliver a stale alert.
-                guard activeAlerts.contains(alert) else { return }
+                guard self.activeAlerts.contains(alert) else { return }
                 let now = Date()
                 if let last = Self.notificationDates[key], now.timeIntervalSince(last) < Self.notificationCooldown {
                     return

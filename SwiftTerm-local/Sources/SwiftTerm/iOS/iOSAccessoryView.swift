@@ -30,8 +30,8 @@ public class TerminalAccessory: UIInputView, UIInputViewAudioFeedback {
         }
     }
     
-    var touchButton: UIButton!
-    var keyboardButton: UIButton!
+    var touchButton: UIButton?
+    var keyboardButton: UIButton?
     
     var views: [UIView] = []
     
@@ -50,7 +50,8 @@ public class TerminalAccessory: UIInputView, UIInputViewAudioFeedback {
     }
     
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        print("SwiftTerm/TerminalAccessory: loaded from nib/storyboard unexpectedly, using default init")
+        super.init(coder: coder)
     }
     
     #if os(iOS)
@@ -172,7 +173,7 @@ public class TerminalAccessory: UIInputView, UIInputViewAudioFeedback {
 
     @objc func toggleTouch (_ sender: UIButton) {
         terminalView?.allowMouseReporting.toggle()
-        touchButton.isSelected = !(terminalView?.allowMouseReporting ?? false)
+        touchButton?.isSelected = !(terminalView?.allowMouseReporting ?? false)
     }
 
     var leftViews: [UIView] = []
@@ -214,10 +215,10 @@ public class TerminalAccessory: UIInputView, UIInputViewAudioFeedback {
         rightViews.append(makeAutoRepeatButton ("arrow.up", #selector(up)))
         rightViews.append(makeAutoRepeatButton ("arrow.right", #selector(right)))
         touchButton = makeButton ("", #selector(toggleTouch), icon: "hand.draw", isNormal: false)
-        touchButton.isSelected = terminalView?.allowMouseReporting ?? false
-        rightViews.append (touchButton)
+        touchButton?.isSelected = terminalView?.allowMouseReporting ?? false
+        if let tb = touchButton { rightViews.append(tb) }
         keyboardButton = makeButton ("", #selector(toggleInputKeyboard), icon: "keyboard.chevron.compact.down", isNormal: false)
-        rightViews.append (keyboardButton)
+        if let kb = keyboardButton { rightViews.append(kb) }
 
         // calculate aditional space we can give to keys we want to be bigger (all top level except function keys)
         let minWidth: CGFloat = useSmall ? 20.0 : (UIDevice.current.userInterfaceIdiom == .phone) ? 22 : 32

@@ -149,12 +149,16 @@ enum HostExportImport {
         }
         let existingOrdered = currentHosts.compactMap { byID[$0.id] }
         let existingIDs = Set(currentHosts.map { $0.id })
-        let newHosts = Array(byID.values).filter { !existingIDs.contains($0.id) }
+        let newHosts = bundle.hosts
+            .filter { !existingIDs.contains($0.id) }
+            .compactMap { byID[$0.id] }
         let mergedHosts = existingOrdered + newHosts
 
+        let existingCommandOrder = currentCommands.compactMap { commandsByID[$0.id] }
+        let newCommands = bundle.commands.filter { !currentCommandIDs.contains($0.id) }
         return ImportOutcome(
             hosts: mergedHosts,
-            commands: Array(commandsByID.values),
+            commands: existingCommandOrder + newCommands,
             updatedHosts: updatedHosts,
             addedHosts: addedHosts,
             updatedCommands: updatedCommands

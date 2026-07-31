@@ -104,8 +104,12 @@ class CircularList<T> {
     func recycle ()
     {
         if count != maxLength {
+#if DEBUG
             print ("can only recycle when the buffer is full")
             abort ()
+#else
+            return
+#endif
         }
         let index = getCyclicIndex(count)
         startIndex += 1
@@ -114,7 +118,8 @@ class CircularList<T> {
     }
 
     @discardableResult
-    func pop () -> T {
+    func pop () -> T? {
+        guard count > 0 else { return nil }
         let v = array [getCyclicIndex(count-1)]!
         count = count - 1
         return v
@@ -323,8 +328,12 @@ internal class CircularBufferLineList {
     func recycle (clearAttribute: Attribute)
     {
         if count != maxLength {
+#if DEBUG
             print ("can only recycle when the buffer is full")
             abort ()
+#else
+            return
+#endif
         }
         let index = getCyclicIndex(count)
         startIndex += 1
@@ -336,7 +345,8 @@ internal class CircularBufferLineList {
     }
 
     @discardableResult
-    func pop () -> BufferLine {
+    func pop () -> BufferLine? {
+        guard count > 0 else { return nil }
         let v = array [getCyclicIndex(count-1)]!
         count = count - 1
         return v

@@ -63,9 +63,9 @@ final class SFTPBatchTests: XCTestCase {
 
     // MARK: - sftp argv
 
-    func testSftpBatchCommandDefaultPort() {
+    func testSftpBatchCommandDefaultPort() throws {
         XCTAssertEqual(
-            SSHCommandBuilder.sftpBatchCommand(
+            try SSHCommandBuilder.sftpBatchCommand(
                 controlSocketPath: "/tmp/cm-abc",
                 destination: "user@host"
             ),
@@ -80,8 +80,8 @@ final class SFTPBatchTests: XCTestCase {
         )
     }
 
-    func testSftpBatchCommandCustomPort() {
-        let argv = SSHCommandBuilder.sftpBatchCommand(
+    func testSftpBatchCommandCustomPort() throws {
+        let argv = try SSHCommandBuilder.sftpBatchCommand(
             controlSocketPath: "/tmp/cm-abc",
             destination: "host",
             port: 2222
@@ -89,8 +89,8 @@ final class SFTPBatchTests: XCTestCase {
         XCTAssertEqual(Array(argv.suffix(3)), ["-P", "2222", "host"])
     }
 
-    func testSftpBatchCommandPort22IsOmitted() {
-        let argv = SSHCommandBuilder.sftpBatchCommand(
+    func testSftpBatchCommandPort22IsOmitted() throws {
+        let argv = try SSHCommandBuilder.sftpBatchCommand(
             controlSocketPath: "/tmp/cm-abc",
             destination: "host",
             port: 22

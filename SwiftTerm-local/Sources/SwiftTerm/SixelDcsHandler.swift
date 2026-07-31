@@ -321,8 +321,9 @@ class SixelDcsHandler : DcsHandler {
         let rgba: UInt32
         if let known = palette[color] {
             rgba = known
-        } else if color >= 0 && color < terminal.defaultAnsiColors.count {
-            let standard = terminal.defaultAnsiColors[color]
+        } else if terminal.defaultAnsiColors.indices.contains(color) {
+            let safeColor = min(max(color, 0), terminal.defaultAnsiColors.count - 1)
+            let standard = terminal.defaultAnsiColors[safeColor]
             rgba = UInt32 ((standard.red >> 8) << 24) |
                 UInt32 ((standard.green >> 8) << 16) |
                 UInt32 ((standard.blue >> 8) << 8) |

@@ -66,7 +66,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
             if #available(macOS 10.15, *)  {
                 return NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
             } else {
-                return NSFont(name: "Menlo Regular", size: NSFont.systemFontSize) ?? NSFont(name: "Courier", size: NSFont.systemFontSize)!
+                return NSFont(name: "Menlo Regular", size: NSFont.systemFontSize) ?? NSFont(name: "Courier", size: NSFont.systemFontSize) ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
             }
         }
         
@@ -150,6 +150,12 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
 
     var selection: SelectionService!
     private var scroller: NSScroller!
+
+    /// Serial queue that serializes calls to feed() so the thread-safe
+    /// guarantee in its documentation is actually upheld.  Without this,
+    /// concurrent feed() calls would race on selection.active, search
+    /// invalidation, and display-update state.
+    let feedSyncQueue = DispatchQueue(label: "org.tirania.SwiftTerm.TerminalView.feed")
     
     // Attribute dictionary, maps a console attribute (color, flags) to the corresponding dictionary
     // of attributes for an NSAttributedString
@@ -1517,7 +1523,11 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
 
     private static let kittyBaseLayoutKeyMap: [UInt16: UnicodeScalar] = {
         func scalar(_ char: Character) -> UnicodeScalar {
-            char.unicodeScalars.first!
+            guard let s = char.unicodeScalars.first else {
+                // All callers pass known ASCII literals; U+0020 is always valid.
+                return " "
+            }
+            return s
         }
         return [
             0: scalar("a"),

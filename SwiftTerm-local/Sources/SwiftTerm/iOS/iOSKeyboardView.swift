@@ -143,7 +143,8 @@ class KeyboardView: UIView {
     }
     
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        print("SwiftTerm/KeyboardView(iOS): loaded from nib/storyboard unexpectedly, using default init")
+        super.init(coder: coder)
     }
 
     public override var bounds: CGRect {

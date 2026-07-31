@@ -1,5 +1,6 @@
 import Foundation
 import HarborKit
+import os.log
 
 // MARK: - Persistent path history store
 
@@ -241,6 +242,16 @@ final class FileService: ObservableObject {
         isLoading = false
         isMutating = false
         status = .idle
+    }
+
+    deinit {
+        prepareTask?.cancel()
+        directorySyncTask?.cancel()
+        mutationTask?.cancel()
+        for task in transferTasks.values { task.cancel() }
+        for timer in progressPollers.values { timer.invalidate() }
+        for task in remoteProgressTasks.values { task.cancel() }
+        for session in editSessions { session.cancel() }
     }
 
     private func prepare() async {
@@ -602,7 +613,11 @@ final class FileService: ObservableObject {
         let remotePath = absolutePath(of: entry)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("harbor-edit-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        } catch {
+            os_log(.error, "Failed to create temp edit directory at %{public}@: %{public}@", tempDir.path, error.localizedDescription)
+        }
         let localURL = tempDir.appendingPathComponent(entry.name)
         let exec = self.exec
         let transfer = Transfer(filename: entry.name, direction: .download)
@@ -965,7 +980,11 @@ final class FileService: ObservableObject {
 
         // 3. Extract locally into the staging dir, then move the extracted folder
         //    into Downloads with the usual "-2" collision suffix.
-        try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        } catch {
+            os_log(.error, "Failed to create staging directory at %{public}@: %{public}@", staging.path, error.localizedDescription)
+        }
         let extract = await AuxProcess.run(
             argv: [Self.localTar, "xzf", localTgz.path, "-C", staging.path],
             timeout: Self.transferTimeout)

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// A terminal color scheme: the 16 ANSI palette entries plus default
 /// foreground / background / cursor colors.
@@ -49,7 +50,15 @@ public struct TerminalTheme: Identifiable, Hashable, Sendable {
         cursor: RGB,
         ansi: [RGB]
     ) {
-        precondition(ansi.count == 16, "A terminal theme needs exactly 16 ANSI colors")
+        var ansi = ansi
+        if ansi.count != 16 {
+            Logger().warning("TerminalTheme '\(name)': ansi count is \(ansi.count), expected 16 — adjusting")
+            if ansi.count < 16 {
+                ansi.append(contentsOf: Array(repeating: RGB(0x000000), count: 16 - ansi.count))
+            } else {
+                ansi = Array(ansi.prefix(16))
+            }
+        }
         self.id = id
         self.name = name
         self.isDark = isDark

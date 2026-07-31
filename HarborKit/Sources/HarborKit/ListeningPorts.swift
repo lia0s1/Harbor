@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// One listening socket from `ss -tulnpH` — the "谁占了 8080" lookup. Carries
 /// the protocol, bind address + port, and the owning process when `ss` can see
@@ -47,9 +48,12 @@ public enum ListeningPortsParser {
         "LC_ALL=C ss -tulnpH 2>/dev/null || LC_ALL=C ss -tulnp 2>/dev/null"
 
     /// `users:(("name",pid=123,fd=4),…)` — captures the FIRST process name + pid.
-    private static let procRegex: NSRegularExpression = {
+    private static let procRegex: NSRegularExpression? = {
         do { return try NSRegularExpression(pattern: #"\"([^\"]+)\",pid=(\d+)"#) }
-        catch { fatalError("procRegex pattern is invalid: \(error)") }
+        catch {
+            Logger().warning("ListeningPortsParser: procRegex compile failed: \(error.localizedDescription)")
+            return nil
+        }
     }()
 
     public static func parse(_ text: String) -> [ListeningPort] {
@@ -69,12 +73,14 @@ public enum ListeningPortsParser {
             // its own field or (rarely, with extra ss columns) shifted.
             var procName = ""
             var pid = 0
-            let nsLine = line as NSString
-            if let match = procRegex.firstMatch(
-                in: line, range: NSRange(location: 0, length: nsLine.length)
-            ) {
-                procName = nsLine.substring(with: match.range(at: 1))
-                pid = Int(nsLine.substring(with: match.range(at: 2))) ?? 0
+            if let procRegex {
+                let nsLine = line as NSString
+                if let match = procRegex.firstMatch(
+                    in: line, range: NSRange(location: 0, length: nsLine.length)
+                ) {
+                    procName = nsLine.substring(with: match.range(at: 1))
+                    pid = Int(nsLine.substring(with: match.range(at: 2))) ?? 0
+                }
             }
             result.append(ListeningPort(
                 proto: proto, address: address, port: port, process: procName, pid: pid
