@@ -63,6 +63,18 @@ final class HarborTerminalView: LocalProcessTerminalView {
         }
     }
 
+    /// Belt-and-suspenders: if the terminal is first responder, never let AppKit
+    /// menu/key-equivalent machinery claim Control key combos (especially Ctrl+C).
+    /// Returning false forces the event into `keyDown`, where SwiftTerm maps it
+    /// to a PTY control byte (0x03 = SIGINT).
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.control) && !flags.contains(.command) {
+            return false
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     // MARK: - Right-click / two-finger background menu
 
     /// Secondary-click (right-click or two-finger tap) menu: copy/paste plus

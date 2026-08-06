@@ -910,19 +910,31 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     // That is why we do not handle things like the return key here, instead those are
     // handled by doCommand below.
     //
-    // Cmd+C copies the selection when text is selected; otherwise falls through so
-    // the event reaches keyDown and is forwarded to the shell as Ctrl+C (SIGINT).
-    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
+    // Cmd+C copies the selection when text is selected.
+    // Control combos (Ctrl+C/D/Z/…) MUST NOT be claimed here — if we return true
+    // from performKeyEquivalent, AppKit never delivers keyDown, so the PTY never
+    // sees 0x03 (SIGINT). Some menu/IME paths will otherwise swallow Control+C.
+    open override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Let Control(+optional Shift/Option/Caps) always fall through to keyDown.
+        if flags.contains(.control) && !flags.contains(.command) {
+            return false
+        }
+        guard flags == .command || flags == [.command, .shift] else {
+            return super.performKeyEquivalent(with: event)
+        }
+        // Only plain Cmd (no Shift) for copy/select-all; keep Shift+Cmd free for menus.
+        guard flags == .command else {
             return super.performKeyEquivalent(with: event)
         }
         switch event.charactersIgnoringModifiers {
-        case "c":
+        case "c", "C":
             if selection.active {
                 copy(self)
                 return true
             }
-        case "a":
+            // No selection: do not claim the event (avoid eating it).
+        case "a", "A":
             selectAll(self)
             return true
         default:
@@ -946,10 +958,25 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
                 return
             }
 
-            if eventFlags.contains(.control), !terminal.keyboardEnhancementFlags.contains(.reportAllKeys) {
-                let controlBytes = controlBytes(for: event)
-                if !controlBytes.isEmpty {
-                    send (controlBytes)
+            // Always prefer classic PTY control bytes for Ctrl+letter (0x03 = SIGINT).
+            // Kitty CSI-u encodings do not trigger the kernel TTY VINTR, so Ctrl+C
+            // would appear "dead" under keyboard-enhancement mode if we only sent CSI-u.
+            if eventFlags.contains(.control) {
+                if let ch = event.charactersIgnoringModifiers, let fs = ch.unicodeScalars.first {
+                    switch Int(fs.value) {
+                    case NSLeftArrowFunctionKey:
+                        send(EscapeSequences.controlLeft)
+                        return
+                    case NSRightArrowFunctionKey:
+                        send(EscapeSequences.controlRight)
+                        return
+                    default:
+                        break
+                    }
+                }
+                let bytes = controlBytes(for: event)
+                if !bytes.isEmpty {
+                    send(bytes)
                     return
                 }
             }
@@ -971,7 +998,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
                 }
             }
 
-            if eventFlags.contains(.control) || (optionAsMetaKey && eventFlags.contains(.option)) {
+            if optionAsMetaKey && eventFlags.contains(.option) {
                 if let kittyEvent = kittyTextEvent(from: event, eventType: repeatEventType),
                    sendKittyEvent(kittyEvent) {
                     return
@@ -1006,7 +1033,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
             }
             return
         } else if eventFlags.contains (.control) {
-            // Sends the control sequence
+            // Sends the control sequence (Ctrl+C → 0x03 / SIGINT, Ctrl+D → EOF, …)
             if let ch = event.charactersIgnoringModifiers {
                 if let fs = ch.unicodeScalars.first {
                     switch Int (fs.value) {
@@ -1026,6 +1053,10 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
                 send (controlBytes)
                 return
             }
+            // Mapping can fail under IME / non-Latin layouts. Never fall through
+            // to interpretKeyEvents for bare Control combos — that silently drops
+            // interrupt (Ctrl+C) and EOF (Ctrl+D).
+            return
         } else if eventFlags.contains (.function) {
             if let str = event.charactersIgnoringModifiers {
                 if let fs = str.unicodeScalars.first {
@@ -1448,22 +1479,66 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
 
     private func controlBytes(for event: NSEvent) -> [UInt8] {
+        // 1) System sometimes already delivers the control code (e.g. 0x03).
+        //    applyControlToEventCharacters only maps letters — pass these through.
+        if let ch = event.characters, ch.unicodeScalars.count == 1,
+           let scalar = ch.unicodeScalars.first {
+            let value = scalar.value
+            if value < 0x20 || value == 0x7f {
+                return [UInt8(value)]
+            }
+        }
+        // 2) Letter/symbol → control code via charactersIgnoringModifiers.
         if let ch = event.charactersIgnoringModifiers {
-            let controlBytes = applyControlToEventCharacters(ch)
-            if !controlBytes.isEmpty {
-                return controlBytes
+            let mapped = applyControlToEventCharacters(ch)
+            if !mapped.isEmpty {
+                return mapped
             }
         }
-        if let ch = event.characters {
-            let controlBytes = applyControlToEventCharacters(ch)
-            if !controlBytes.isEmpty {
-                return controlBytes
-            }
-        }
+        // 3) Physical keyCode (IME-safe: Pinyin/ABC still report US key positions).
         if let baseLayout = kittyBaseLayoutKey(from: event) {
-            return applyControlToEventCharacters(String(baseLayout))
+            let mapped = applyControlToEventCharacters(String(baseLayout))
+            if !mapped.isEmpty {
+                return mapped
+            }
         }
-        return []
+        // 4) Last resort: raw characters string (some layouts only fill this).
+        if let ch = event.characters {
+            let mapped = applyControlToEventCharacters(ch)
+            if !mapped.isEmpty {
+                return mapped
+            }
+        }
+        // 5) Hard-coded US/ANSI keyCodes for the interrupt cluster when IME
+        //    blanks every character field (seen with some Chinese input sources).
+        switch event.keyCode {
+        case 0:  return [0x01] // Ctrl+A
+        case 1:  return [0x13] // Ctrl+S
+        case 2:  return [0x04] // Ctrl+D
+        case 3:  return [0x06] // Ctrl+F
+        case 5:  return [0x07] // Ctrl+G
+        case 6:  return [0x1a] // Ctrl+Z
+        case 7:  return [0x18] // Ctrl+X
+        case 8:  return [0x03] // Ctrl+C  (SIGINT)
+        case 9:  return [0x16] // Ctrl+V
+        case 11: return [0x02] // Ctrl+B
+        case 12: return [0x11] // Ctrl+Q
+        case 13: return [0x17] // Ctrl+W
+        case 14: return [0x05] // Ctrl+E
+        case 15: return [0x12] // Ctrl+R
+        case 16: return [0x19] // Ctrl+Y
+        case 17: return [0x14] // Ctrl+T
+        case 32: return [0x15] // Ctrl+U
+        case 34: return [0x09] // Ctrl+I (TAB)
+        case 35: return [0x10] // Ctrl+P
+        case 37: return [0x0c] // Ctrl+L
+        case 38: return [0x0a] // Ctrl+J
+        case 40: return [0x0b] // Ctrl+K
+        case 45: return [0x0e] // Ctrl+N
+        case 46: return [0x0d] // Ctrl+M (CR)
+        default:
+            return []
+        }
     }
 
     private func kittyTextForFunctionalKey(_ key: KittyFunctionalKey, event: NSEvent) -> String? {

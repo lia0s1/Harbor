@@ -384,10 +384,14 @@ struct CommandStripView: View {
             }
             // Forward Ctrl+C to the terminal PTY so the running process gets
             // SIGINT even when the command strip field currently has focus.
+            // Use contains(.control) — exact == fails when capsLock/numPad bits
+            // are present in EventModifiers on some macOS / IME setups.
             .onKeyPress(phases: .down) { press in
-                guard press.modifiers == .control,
-                      press.key == KeyEquivalent("c"),
-                      !isExited else { return .ignored }
+                guard !isExited,
+                      press.modifiers.contains(.control),
+                      !press.modifiers.contains(.command),
+                      press.key == KeyEquivalent("c") || press.key == KeyEquivalent("C")
+                else { return .ignored }
                 session.terminalView.send(txt: "\u{03}")
                 return .handled
             }
