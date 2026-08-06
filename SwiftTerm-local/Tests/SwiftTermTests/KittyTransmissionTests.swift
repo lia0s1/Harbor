@@ -92,7 +92,9 @@ final class KittyTransmissionTests {
         #expect(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
-    @Test func testKittyTemporaryFileDeleted() throws {
+    @Test func testKittyTemporaryFileTransmissionDisabled() throws {
+        // Product policy: local file transmission (t=t/f/s) is disabled so a
+        // remote cannot make the SSH client read/delete host files.
         let h = makeHeadlessTerminal()
         let t = h.terminal!
         let dir = try makeTempDir()
@@ -105,8 +107,8 @@ final class KittyTransmissionTests {
                   control: "f=24,s=1,v=1,t=t,i=1",
                   payload: Data(fileURL.path.utf8))
 
-        #expect(t.kittyGraphicsState.imagesById[1] != nil)
-        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+        #expect(t.kittyGraphicsState.imagesById[1] == nil)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
     @Test func testKittyFileSymlinkBlockedByRealPath() throws {
@@ -137,7 +139,7 @@ final class KittyTransmissionTests {
         #expect(t.kittyGraphicsState.imagesById[1] == nil)
     }
 
-    @Test func testKittyFileOffsetAndSize() throws {
+    @Test func testKittyFileOffsetAndSizeDisabled() throws {
         let h = makeHeadlessTerminal()
         let t = h.terminal!
         let dir = try makeTempDir()
@@ -151,21 +153,10 @@ final class KittyTransmissionTests {
                   control: "f=24,s=1,v=1,t=f,i=1,O=3,S=3",
                   payload: Data(fileURL.path.utf8))
 
-        guard let image = t.kittyGraphicsState.imagesById[1] else {
-            Issue.record("image not loaded")
-            return
-        }
-        switch image.payload {
-        case .rgba(let bytes, let width, let height):
-            #expect(width == 1)
-            #expect(height == 1)
-            #expect(bytes == [40, 50, 60, 255])
-        case .png:
-            Issue.record("unexpected png payload")
-        }
+        #expect(t.kittyGraphicsState.imagesById[1] == nil)
     }
 
-    @Test func testKittyPngFileLoad() throws {
+    @Test func testKittyPngFileLoadDisabled() throws {
         let h = makeHeadlessTerminal()
         let t = h.terminal!
         let dir = try makeTempDir()
@@ -178,16 +169,7 @@ final class KittyTransmissionTests {
                   control: "f=100,t=f,i=1",
                   payload: Data(fileURL.path.utf8))
 
-        guard let image = t.kittyGraphicsState.imagesById[1] else {
-            Issue.record("image not loaded")
-            return
-        }
-        switch image.payload {
-        case .png:
-            break
-        case .rgba:
-            Issue.record("expected png payload")
-        }
+        #expect(t.kittyGraphicsState.imagesById[1] == nil)
     }
 
     @Test func testKittyDimensionLimitRejected() {
@@ -203,7 +185,7 @@ final class KittyTransmissionTests {
     }
 
     @Test(.enabled(if: KittyTransmissionTests.sharedMemoryAvailable()))
-    func testKittySharedMemoryLoad() throws {
+    func testKittySharedMemoryLoadDisabled() throws {
         let h = makeHeadlessTerminal()
         let t = h.terminal!
 
@@ -220,10 +202,12 @@ final class KittyTransmissionTests {
                   control: "f=24,s=1,v=1,t=s,i=1",
                   payload: Data(name.utf8))
 
-        #expect(t.kittyGraphicsState.imagesById[1] != nil)
+        #expect(t.kittyGraphicsState.imagesById[1] == nil)
 
+        // shm object must still exist because transmission was refused.
         let reopen = name.withCString { KittyTransmissionTests.swiftShmOpen($0, O_RDONLY, 0) }
-        #expect(reopen < 0)
+        #expect(reopen >= 0)
+        if reopen >= 0 { close(reopen) }
     }
 
     @Test(.enabled(if: KittyTransmissionTests.sharedMemoryAvailable()))

@@ -651,12 +651,11 @@ extension Terminal {
                 return (nil, "EINVAL: bad payload")
             }
             return (payload, nil)
-        case "f":
-            return loadKittyFilePayload(control: control, base64Payload: base64Payload, temporary: false)
-        case "t":
-            return loadKittyFilePayload(control: control, base64Payload: base64Payload, temporary: true)
-        case "s":
-            return loadKittySharedMemoryPayload(control: control, base64Payload: base64Payload)
+        // Harbor/SSH GUI threat model: the remote side must not be able to make
+        // the local client open/read/delete host files or shared memory. Direct
+        // base64 transmission (`t=d`) remains supported.
+        case "f", "t", "s":
+            return (nil, "ENOTSUP: local file/shm transmission disabled")
         default:
             return (nil, "ENOTSUP: unsupported transmission")
         }

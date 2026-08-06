@@ -4,61 +4,71 @@ import XCTest
 final class SFTPBatchTests: XCTestCase {
     // MARK: - Quoting
 
-    func testQuotePlainAndSpaces() {
-        XCTAssertEqual(SFTPBatch.quote("/a/b"), "\"/a/b\"")
-        XCTAssertEqual(SFTPBatch.quote("/a/with space"), "\"/a/with space\"")
+    func testQuotePlainAndSpaces() throws {
+        XCTAssertEqual(try SFTPBatch.quote("/a/b"), "\"/a/b\"")
+        XCTAssertEqual(try SFTPBatch.quote("/a/with space"), "\"/a/with space\"")
     }
 
-    func testQuoteEscapesQuotesAndKeepsBackslashesLiteral() {
-        XCTAssertEqual(SFTPBatch.quote("a\"b"), "\"a\\\"b\"")
-        // sftp's tokenizer keeps a backslash inside double quotes literal
-        // (unless it precedes a quote), so no doubling.
-        XCTAssertEqual(SFTPBatch.quote("a\\b"), "\"a\\b\"")
+    func testQuoteEscapesQuotesAndBackslashes() throws {
+        XCTAssertEqual(try SFTPBatch.quote("a\"b"), "\"a\\\"b\"")
+        // Escape `\` first so a following `"` cannot terminate the token early.
+        XCTAssertEqual(try SFTPBatch.quote("a\\b"), "\"a\\\\b\"")
     }
 
-    func testQuoteGlobbedEscapesGlobCharacters() {
+    func testQuoteRejectsControlAndNewlineCharacters() {
+        XCTAssertThrowsError(try SFTPBatch.quote("/a/\nb")) { error in
+            XCTAssertEqual(error as? SFTPBatchError, .unsafePath("/a/\nb"))
+        }
+        XCTAssertThrowsError(try SFTPBatch.quote("/a/\rb"))
+        XCTAssertThrowsError(try SFTPBatch.quote("/a/\u{0000}b"))
+        XCTAssertThrowsError(try SFTPBatch.quote("/a/\u{2028}b"))
+        XCTAssertThrowsError(try SFTPBatch.get(remote: "/ok", local: "/tmp/x\ny"))
+        XCTAssertThrowsError(try SFTPBatch.put(local: "/tmp/x", remote: "evil\n!rm"))
+    }
+
+    func testQuoteGlobbedEscapesGlobCharacters() throws {
         // Tokenizer keeps `\*` literally inside quotes; glob(3) then treats
         // it as a literal star.
-        XCTAssertEqual(SFTPBatch.quoteGlobbed("*.log"), "\"\\*.log\"")
-        XCTAssertEqual(SFTPBatch.quoteGlobbed("a?b"), "\"a\\?b\"")
-        XCTAssertEqual(SFTPBatch.quoteGlobbed("a[1]"), "\"a\\[1]\"")
-        // A real backslash is doubled for glob; the tokenizer keeps both.
-        XCTAssertEqual(SFTPBatch.quoteGlobbed("a\\b"), "\"a\\\\b\"")
+        XCTAssertEqual(try SFTPBatch.quoteGlobbed("*.log"), "\"\\\\*.log\"")
+        XCTAssertEqual(try SFTPBatch.quoteGlobbed("a?b"), "\"a\\\\?b\"")
+        XCTAssertEqual(try SFTPBatch.quoteGlobbed("a[1]"), "\"a\\\\[1]\"")
+        // A real backslash is glob-escaped then tokenizer-doubled.
+        XCTAssertEqual(try SFTPBatch.quoteGlobbed("a\\b"), "\"a\\\\\\\\b\"")
     }
 
     // MARK: - Batch lines
 
-    func testGet() {
+    func testGet() throws {
         XCTAssertEqual(
-            SFTPBatch.get(remote: "/srv/f 1.txt", local: "/Users/me/Downloads/f 1.txt"),
+            try SFTPBatch.get(remote: "/srv/f 1.txt", local: "/Users/me/Downloads/f 1.txt"),
             "get -p \"/srv/f 1.txt\" \"/Users/me/Downloads/f 1.txt\""
         )
     }
 
-    func testGetRecursive() {
+    func testGetRecursive() throws {
         XCTAssertEqual(
-            SFTPBatch.get(remote: "/srv/dir", local: "/tmp/dir", recursive: true),
+            try SFTPBatch.get(remote: "/srv/dir", local: "/tmp/dir", recursive: true),
             "get -p -R \"/srv/dir\" \"/tmp/dir\""
         )
     }
 
-    func testPut() {
+    func testPut() throws {
         XCTAssertEqual(
-            SFTPBatch.put(local: "/tmp/up.bin", remote: "/srv/up.bin"),
+            try SFTPBatch.put(local: "/tmp/up.bin", remote: "/srv/up.bin"),
             "put -p \"/tmp/up.bin\" \"/srv/up.bin\""
         )
         XCTAssertEqual(
-            SFTPBatch.put(local: "/tmp/d", remote: "/srv/d", recursive: true),
+            try SFTPBatch.put(local: "/tmp/d", remote: "/srv/d", recursive: true),
             "put -p -R \"/tmp/d\" \"/srv/d\""
         )
     }
 
-    func testRenameAndMkdir() {
+    func testRenameAndMkdir() throws {
         XCTAssertEqual(
-            SFTPBatch.rename(from: "/a/old name", to: "/a/new name"),
+            try SFTPBatch.rename(from: "/a/old name", to: "/a/new name"),
             "rename \"/a/old name\" \"/a/new name\""
         )
-        XCTAssertEqual(SFTPBatch.mkdir("/a/新建文件夹"), "mkdir \"/a/新建文件夹\"")
+        XCTAssertEqual(try SFTPBatch.mkdir("/a/新建文件夹"), "mkdir \"/a/新建文件夹\"")
     }
 
     // MARK: - sftp argv

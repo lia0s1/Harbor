@@ -571,7 +571,7 @@ struct RemoteFilePane: View {
                     let dir = entry.isDirectory
                         ? service.absolutePath(of: entry)
                         : service.cwd
-                    session.sendText("cd \(dir.shellEscaped)\r")
+                    session.sendText("cd \(sq(dir))\r")
                 }
                 Button("重命名…") { beginRename(items[0]) }
                 Button("权限…") { permissionsTarget = items[0] }
@@ -692,15 +692,6 @@ struct RemoteFilePane: View {
         let paths = deleteTargets.map { service.absolutePath(of: $0) }
         if paths.count <= 8 { return paths.joined(separator: "\n") }
         return paths.prefix(8).joined(separator: "\n") + L("\n…等 %lld 项", paths.count)
-    }
-}
-
-// MARK: - Shell escaping
-
-private extension String {
-    /// Single-quote escapes a string for safe inclusion in a remote POSIX shell command.
-    var shellEscaped: String {
-        "'" + self.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 

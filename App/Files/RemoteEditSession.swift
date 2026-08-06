@@ -71,8 +71,14 @@ func atomicRemoteUpload(
     let parent = RemotePath.parent(of: remotePath)
     let stagedPath = RemotePath.join(parent, ".harbor-edit-\(UUID().uuidString).part")
 
+    let putBatch: String
+    do {
+        putBatch = try SFTPBatch.put(local: localURL.path, remote: stagedPath)
+    } catch {
+        return .failure(.message(error.localizedDescription))
+    }
     let put = await exec.runSFTPBatch(
-        SFTPBatch.put(local: localURL.path, remote: stagedPath),
+        putBatch,
         timeout: timeout
     )
     guard !put.timedOut, put.exitCode == 0 else {

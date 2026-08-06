@@ -151,14 +151,45 @@ public enum RemotePath {
 
 // MARK: - sftp batch lines
 
+/// Errors from building `sftp -b` batch commands.
+public enum SFTPBatchError: Error, Equatable, LocalizedError, Sendable {
+    /// Path contains CR/LF/NUL/other controls that break the line-oriented
+    /// sftp batch protocol even inside double quotes.
+    case unsafePath(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsafePath:
+            return "Path contains control or newline characters that cannot be used with sftp batch mode"
+        }
+    }
+}
+
 /// Builders for `sftp -b` batch commands. sftp's tokenizer treats `\\` as an
 /// escaped backslash and `\"` as an escaped double-quote inside double-quoted
 /// strings; all other characters are literal. Glob metacharacters are further
 /// expanded by sftp for get/put source paths (see quoteGlobbed).
+///
+/// Paths with newlines or other control characters are rejected: the batch
+/// protocol is line-oriented, so a remote name containing `\n` can desync the
+/// script into attacker-controlled extra commands.
 public enum SFTPBatch {
+    /// Reject empty paths and any control/newline scalar (CR/LF/NUL/tabs and
+    /// Unicode line/paragraph separators). Call this before building batch lines.
+    public static func validatePath(_ path: String) throws {
+        guard !path.isEmpty else {
+            throw SFTPBatchError.unsafePath(path)
+        }
+        let forbidden = CharacterSet.controlCharacters.union(.newlines)
+        if path.unicodeScalars.contains(where: { forbidden.contains($0) }) {
+            throw SFTPBatchError.unsafePath(path)
+        }
+    }
+
     /// Tokenizer-level quoting: wrap in double quotes, escape `\` then `"`.
     /// For paths sftp does NOT expand with glob(3) (destinations, rename, mkdir).
-    public static func quote(_ path: String) -> String {
+    public static func quote(_ path: String) throws -> String {
+        try validatePath(path)
         let escaped = path
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -167,7 +198,8 @@ public enum SFTPBatch {
 
     /// Quoting for paths sftp expands with glob(3): `* ? [` (and `\`, glob's
     /// own escape) are glob-escaped first, then the result is tokenizer-quoted.
-    public static func quoteGlobbed(_ path: String) -> String {
+    public static func quoteGlobbed(_ path: String) throws -> String {
+        try validatePath(path)
         var globEscaped = ""
         for character in path {
             if character == "\\" || character == "*" || character == "?" || character == "[" || character == "{" {
@@ -175,24 +207,25 @@ public enum SFTPBatch {
             }
             globEscaped.append(character)
         }
-        return quote(globEscaped)
+        // Glob-escaping only inserts backslashes (already allowed); re-quote.
+        return try quote(globEscaped)
     }
 
     /// Download: `get -p [-R] "remote" "local"`. `-p` preserves times.
-    public static func get(remote: String, local: String, recursive: Bool = false) -> String {
-        "get -p\(recursive ? " -R" : "") \(quoteGlobbed(remote)) \(quote(local))"
+    public static func get(remote: String, local: String, recursive: Bool = false) throws -> String {
+        "get -p\(recursive ? " -R" : "") \(try quoteGlobbed(remote)) \(try quote(local))"
     }
 
     /// Upload: `put -p [-R] "local" "remote"`.
-    public static func put(local: String, remote: String, recursive: Bool = false) -> String {
-        "put -p\(recursive ? " -R" : "") \(quoteGlobbed(local)) \(quote(remote))"
+    public static func put(local: String, remote: String, recursive: Bool = false) throws -> String {
+        "put -p\(recursive ? " -R" : "") \(try quoteGlobbed(local)) \(try quote(remote))"
     }
 
-    public static func rename(from: String, to: String) -> String {
-        "rename \(quote(from)) \(quote(to))"
+    public static func rename(from: String, to: String) throws -> String {
+        "rename \(try quote(from)) \(try quote(to))"
     }
 
-    public static func mkdir(_ path: String) -> String {
-        "mkdir \(quote(path))"
+    public static func mkdir(_ path: String) throws -> String {
+        "mkdir \(try quote(path))"
     }
 }

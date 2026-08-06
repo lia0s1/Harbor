@@ -88,6 +88,20 @@ SOURCE_REVISION="$(git rev-parse --verify HEAD 2>/dev/null)" || {
     echo "Release refused: commit, stash, or remove all source changes before release." >&2
     exit 1
 }
+# Refuse nested git repos/gitlinks under vendored sources (SwiftTerm etc.).
+# Matches docs/security-and-release.md: release must not ship unreviewed nested trees.
+nested_git="$(find "$ROOT" \
+    \( -path "$ROOT/.git" -o -path "$ROOT/.git/*" -o -path "$ROOT/.build/*" -o -path "$ROOT/.claude/*" \) -prune -o \
+    \( -name .git -o -name .gitmodules \) -print 2>/dev/null || true)"
+if [[ -n "$nested_git" ]]; then
+    echo "Release refused: nested Git metadata found (vendored code must be plain source):" >&2
+    printf '%s\n' "$nested_git" >&2
+    exit 1
+fi
+if [[ "${SWIFTTERM_INCLUDE_DEVELOPMENT_TARGETS:-}" == "1" ]]; then
+    echo "Release refused: unset SWIFTTERM_INCLUDE_DEVELOPMENT_TARGETS for release builds." >&2
+    exit 1
+fi
 [[ -n "$NOTARY_PROFILE" ]] || {
     echo "NOTARY_PROFILE is required. Store credentials with 'xcrun notarytool store-credentials' first." >&2
     exit 2

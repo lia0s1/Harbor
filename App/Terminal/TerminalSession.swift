@@ -462,6 +462,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             let fm = FileManager.default
             do {
                 try fm.createDirectory(at: logsDir, withIntermediateDirectories: true)
+                try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: logsDir.path)
             } catch {
                 os_log(.error, "Failed to create Harbor log directory at %{public}@: %{public}@", logsDir.path, error.localizedDescription)
             }

@@ -26,11 +26,27 @@ enum HostExportImport {
 
         let bundle = HostBundle(hosts: hosts, commands: commands)
         Task {
-            let failure = await Task.detached(priority: .userInitiated) {
+            let failure: String? = await Task.detached(priority: .userInitiated) { () -> String? in
                 do {
                     let data = try JSONEncoder().encode(bundle)
-                    try data.write(to: url, options: .atomic)
-                    return nil as String?
+                    // Host inventory is sensitive (hostnames, users, key paths).
+                    // Write 0600 then replace so the backup is never world-readable.
+                    let fm = FileManager.default
+                    let temp = url.deletingLastPathComponent()
+                        .appendingPathComponent(".harbor-export-\(UUID().uuidString).tmp")
+                    guard fm.createFile(
+                        atPath: temp.path,
+                        contents: data,
+                        attributes: [.posixPermissions: 0o600]
+                    ) else {
+                        return "Failed to create export file"
+                    }
+                    if fm.fileExists(atPath: url.path) {
+                        try fm.removeItem(at: url)
+                    }
+                    try fm.moveItem(at: temp, to: url)
+                    try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+                    return nil
                 } catch {
                     return error.localizedDescription
                 }

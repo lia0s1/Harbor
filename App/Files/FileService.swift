@@ -481,11 +481,17 @@ final class FileService: ObservableObject {
                 continue
             }
             let local = Self.uniqueLocalURL(for: entry.name, in: downloads)
-            let batch = SFTPBatch.get(
-                remote: absolutePath(of: entry),
-                local: local.path,
-                recursive: entry.isDirectory
-            )
+            let batch: String
+            do {
+                batch = try SFTPBatch.get(
+                    remote: absolutePath(of: entry),
+                    local: local.path,
+                    recursive: entry.isDirectory
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+                continue
+            }
             enqueueTransfer(
                 filename: entry.name,
                 direction: .download,
@@ -513,11 +519,17 @@ final class FileService: ObservableObject {
             }
             let total = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
             let remote = RemotePath.join(cwd, url.lastPathComponent)
-            let batch = SFTPBatch.put(
-                local: url.path,
-                remote: remote,
-                recursive: isDirectory
-            )
+            let batch: String
+            do {
+                batch = try SFTPBatch.put(
+                    local: url.path,
+                    remote: remote,
+                    recursive: isDirectory
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+                continue
+            }
             enqueueTransfer(
                 filename: url.lastPathComponent,
                 direction: .upload,
@@ -592,11 +604,17 @@ final class FileService: ObservableObject {
                 continue
             }
             let local = Self.uniqueLocalURL(for: entry.name, in: localDir)
-            let batch = SFTPBatch.get(
-                remote: absolutePath(of: entry),
-                local: local.path,
-                recursive: entry.isDirectory
-            )
+            let batch: String
+            do {
+                batch = try SFTPBatch.get(
+                    remote: absolutePath(of: entry),
+                    local: local.path,
+                    recursive: entry.isDirectory
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+                continue
+            }
             enqueueTransfer(
                 filename: entry.name,
                 direction: .download,
@@ -654,8 +672,17 @@ final class FileService: ObservableObject {
                 try? FileManager.default.removeItem(at: tempDir)
                 return
             }
+            let batch: String
+            do {
+                batch = try SFTPBatch.get(remote: remotePath, local: localURL.path)
+            } catch {
+                self?.transferTasks.removeValue(forKey: transferID)
+                self?.failTransfer(transferID, error.localizedDescription)
+                try? FileManager.default.removeItem(at: tempDir)
+                return
+            }
             let result = await exec.runSFTPBatch(
-                SFTPBatch.get(remote: remotePath, local: localURL.path),
+                batch,
                 timeout: Self.transferTimeout
             )
             guard let self else {
@@ -756,8 +783,14 @@ final class FileService: ObservableObject {
         case .failure(let failure):
             return .failure(EditError(message: failure.message))
         }
+        let batch: String
+        do {
+            batch = try SFTPBatch.get(remote: remotePath, local: tempURL.path)
+        } catch {
+            return .failure(EditError(message: error.localizedDescription))
+        }
         let result = await exec.runSFTPBatch(
-            SFTPBatch.get(remote: remotePath, local: tempURL.path),
+            batch,
             timeout: Self.transferTimeout
         )
         guard !result.timedOut, result.exitCode == 0 else { return .failure(EditError(message: Self.failureText(result))) }
@@ -979,8 +1012,14 @@ final class FileService: ObservableObject {
 
         // 2. Pull the single archive (progress from its growing local size).
         startProgressPoll(transferID: id, localURL: localTgz)
-        let get = await exec.runSFTPBatch(
-            SFTPBatch.get(remote: remoteTgz, local: localTgz.path), timeout: Self.transferTimeout)
+        let getBatch: String
+        do {
+            getBatch = try SFTPBatch.get(remote: remoteTgz, local: localTgz.path)
+        } catch {
+            stopProgressPoll(transferID: id)
+            cleanupRemote(); cleanupLocal(); failTransfer(id, error.localizedDescription); return
+        }
+        let get = await exec.runSFTPBatch(getBatch, timeout: Self.transferTimeout)
         stopProgressPoll(transferID: id)
         cleanupRemote()
         guard !Task.isCancelled else { cleanupLocal(); return }
@@ -988,8 +1027,12 @@ final class FileService: ObservableObject {
             cleanupLocal(); failTransfer(id, Self.failureText(get)); return
         }
 
-        // 3. Extract locally into the staging dir, then move the extracted folder
+        // 3. Validate archive members (reject path traversal / absolute paths),
+        //    extract into staging, re-check containment, then move the top entry
         //    into Downloads with the usual "-2" collision suffix.
+        if let slip = await Self.archivePathSlipReason(tar: Self.localTar, archive: localTgz) {
+            cleanupLocal(); failTransfer(id, slip); return
+        }
         do {
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         } catch {
@@ -1001,11 +1044,16 @@ final class FileService: ObservableObject {
         guard extract.exitCode == 0 else {
             cleanupLocal(); failTransfer(id, L("解压下载的压缩包失败")); return
         }
+        if let escape = Self.pathEscapeReason(under: staging) {
+            cleanupLocal(); failTransfer(id, escape); return
+        }
         // Move the ACTUAL single top-level entry (normally `name`, but don't
         // assume — some tar configs store members differently).
         let items = (try? FileManager.default.contentsOfDirectory(
             at: staging, includingPropertiesForKeys: nil)) ?? []
-        guard let source = items.first(where: { $0.lastPathComponent == name }) ?? items.first else {
+        // Ignore the staging dir's own AppleDouble / hidden noise if any.
+        let visible = items.filter { !$0.lastPathComponent.hasPrefix(".") || $0.lastPathComponent == name }
+        guard let source = visible.first(where: { $0.lastPathComponent == name }) ?? visible.first else {
             cleanupLocal(); failTransfer(id, L("解压下载的压缩包失败")); return
         }
         let dest = Self.uniqueLocalURL(for: source.lastPathComponent, in: downloads)
@@ -1070,8 +1118,14 @@ final class FileService: ObservableObject {
 
         // 2. Push the archive (progress from the growing remote file).
         startRemoteProgressPoll(transferID: id, remotePath: remoteTgz)
-        let put = await exec.runSFTPBatch(
-            SFTPBatch.put(local: localTgz.path, remote: remoteTgz), timeout: Self.transferTimeout)
+        let putBatch: String
+        do {
+            putBatch = try SFTPBatch.put(local: localTgz.path, remote: remoteTgz)
+        } catch {
+            stopProgressPoll(transferID: id)
+            cleanupLocal(); cleanupRemote(); failTransfer(id, error.localizedDescription); return
+        }
+        let put = await exec.runSFTPBatch(putBatch, timeout: Self.transferTimeout)
         stopProgressPoll(transferID: id)
         cleanupLocal()
         guard !Task.isCancelled else { cleanupRemote(); return }
@@ -1216,6 +1270,56 @@ final class FileService: ObservableObject {
         return candidate
     }
 
+    /// Lists archive members with `tar tzf` and rejects absolute paths or any
+    /// `..` component before extraction (classic tar slip).
+    private static func archivePathSlipReason(tar: String, archive: URL) async -> String? {
+        let listed = await AuxProcess.run(
+            argv: [tar, "tzf", archive.path],
+            timeout: transferTimeout
+        )
+        guard listed.exitCode == 0 else {
+            return L("解压下载的压缩包失败")
+        }
+        let members = String(data: listed.stdout, encoding: .utf8)?
+            .split(whereSeparator: \.isNewline)
+            .map(String.init) ?? []
+        for member in members where !member.isEmpty {
+            if member.hasPrefix("/") || member.hasPrefix("\\") {
+                return L("压缩包包含不安全路径，已拒绝解压")
+            }
+            // Windows-style drive paths or URL-like members.
+            if member.count >= 2, member[member.index(member.startIndex, offsetBy: 1)] == ":" {
+                return L("压缩包包含不安全路径，已拒绝解压")
+            }
+            let parts = member.split(separator: "/")
+            if parts.contains("..") {
+                return L("压缩包包含不安全路径，已拒绝解压")
+            }
+        }
+        return nil
+    }
+
+    /// After extract, confirm every entry under `root` resolves inside `root`.
+    /// Defense in depth if the local tar still wrote a link/escape.
+    private static func pathEscapeReason(under root: URL) -> String? {
+        let fm = FileManager.default
+        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+        guard let enumerator = fm.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            options: [.skipsPackageDescendants]
+        ) else { return nil }
+        while let item = enumerator.nextObject() as? URL {
+            let resolved = item.standardizedFileURL.resolvingSymlinksInPath().path
+            if resolved == rootPath { continue }
+            let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+            if !resolved.hasPrefix(prefix) {
+                return L("压缩包解压后写到了目标目录之外，已拒绝")
+            }
+        }
+        return nil
+    }
+
     // MARK: - Mutations (delete / rename / mkdir)
 
     /// `rm -rf` over ssh (handles files and directories alike); the UI shows a
@@ -1318,10 +1422,21 @@ final class FileService: ObservableObject {
         let trimmed = newName.trimmingCharacters(in: .whitespaces)
         guard status == .ready, !trimmed.isEmpty, trimmed != entry.name,
               !trimmed.contains("/") else { return }
-        let batch = SFTPBatch.rename(
-            from: absolutePath(of: entry),
-            to: RemotePath.join(cwd, trimmed)
-        )
+        // Block control/newline names that would desync sftp batch lines.
+        guard (try? SFTPBatch.validatePath(trimmed)) != nil else {
+            errorMessage = SFTPBatchError.unsafePath(trimmed).localizedDescription
+            return
+        }
+        let batch: String
+        do {
+            batch = try SFTPBatch.rename(
+                from: absolutePath(of: entry),
+                to: RemotePath.join(cwd, trimmed)
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
         let exec = self.exec
         runMutation { await exec.runSFTPBatch(batch, timeout: Self.mutationTimeout) }
     }
@@ -1329,7 +1444,17 @@ final class FileService: ObservableObject {
     func createDirectory(named name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard status == .ready, !trimmed.isEmpty, !trimmed.contains("/") else { return }
-        let batch = SFTPBatch.mkdir(RemotePath.join(cwd, trimmed))
+        guard (try? SFTPBatch.validatePath(trimmed)) != nil else {
+            errorMessage = SFTPBatchError.unsafePath(trimmed).localizedDescription
+            return
+        }
+        let batch: String
+        do {
+            batch = try SFTPBatch.mkdir(RemotePath.join(cwd, trimmed))
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
         let exec = self.exec
         runMutation { await exec.runSFTPBatch(batch, timeout: Self.mutationTimeout) }
     }
