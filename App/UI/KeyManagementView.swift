@@ -9,10 +9,10 @@ import os.log
 struct SSHKeyInfo: Identifiable, Equatable {
     let id = UUID()
     let fileName: String       // e.g. "id_ed25519"
-    let fullPath: String       // e.g. "/Users/zero/.ssh/id_ed25519"
+    let fullPath: String       // e.g. "~/.ssh/id_ed25519" expanded
     let keyType: SSHKeyType
     let hasPubKey: Bool
-    let pubKeyPath: String     // e.g. "/Users/zero/.ssh/id_ed25519.pub"
+    let pubKeyPath: String     // e.g. "~/.ssh/id_ed25519.pub" expanded
     var loadedInAgent: Bool
 
     enum SSHKeyType: String, CaseIterable {
