@@ -99,15 +99,22 @@ extension TerminalView {
     {
         resetCaches()
         self.cellDimension = computeFontDimensions ()
-        let newCols = Int(frame.width / cellDimension.width)
+        let newCols = Int(getEffectiveWidth (size: frame.size) / cellDimension.width)
         let newRows = Int(frame.height / cellDimension.height)
         resize(cols: newCols, rows: newRows)
         updateCaretView()
-        
+
         #if os(macOS)
         needsDisplay = true
         #else
         setNeedsDisplay(frame)
+        #endif
+        #if canImport(MetalKit)
+        // needsDisplay does nothing when the MTKView owns rendering
+        if metalView != nil {
+            metalDirtyRange = nil
+            requestMetalDisplay()
+        }
         #endif
     }
     
@@ -194,9 +201,18 @@ extension TerminalView {
     // Computes the font dimensions once font.normal has been set
     func computeFontDimensions () -> CellDimension
     {
-        let lineAscent = CTFontGetAscent (fontSet.normal)
-        let lineDescent = CTFontGetDescent (fontSet.normal)
-        let lineLeading = CTFontGetLeading (fontSet.normal)
+        var lineAscent = CTFontGetAscent (fontSet.normal)
+        var lineDescent = CTFontGetDescent (fontSet.normal)
+        var lineLeading = CTFontGetLeading (fontSet.normal)
+        #if os(macOS)
+        // CJK text falls back to PingFang, whose glyphs exceed Latin metrics;
+        // size the cell from the max so CJK glyphs are neither clipped nor shrunken.
+        if let cjkFont = NSFont(name: "PingFang SC", size: fontSet.normal.pointSize) {
+            lineAscent = max(lineAscent, CTFontGetAscent (cjkFont))
+            lineDescent = max(lineDescent, CTFontGetDescent (cjkFont))
+            lineLeading = max(lineLeading, CTFontGetLeading (cjkFont))
+        }
+        #endif
         let cellHeight = ceil(lineAscent + lineDescent + lineLeading)
         #if os(macOS)
         // The following is a more robust way of getting the largest ascii character width, but comes with a performance hit.
@@ -1374,7 +1390,7 @@ extension TerminalView {
                         continue
                     }
                     let runAttributes = CTRunGetAttributes(run) as? [NSAttributedString.Key: Any] ?? [:]
-                    let runFont = runAttributes[.font] as! TTFont
+                    let runFont = runAttributes[.font] as? TTFont ?? fontSet.normal
                     let startColumn = prepared.segment.column + (processedGlyphs * prepared.segment.columnWidth)
 
                     let runGlyphs = [CGGlyph](unsafeUninitializedCapacity: runGlyphsCount) { (bufferPointer, count) in

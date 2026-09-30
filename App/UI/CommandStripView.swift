@@ -173,6 +173,7 @@ struct CommandStripView: View {
     @State private var findCurrentMatch: Int = 0
     @State private var findMatchCount: Int = 0
     @State private var isExited = false
+    @State private var isRunning = false
     @State private var pendingRisk: CommandRisk?
     @State private var pendingCommand = ""
     @State private var cachedSuggestion = ""
@@ -180,6 +181,14 @@ struct CommandStripView: View {
     @FocusState private var findFocused: Bool
 
     private enum FindStatus: Equatable { case idle, found, notFound }
+    private static let maxDraftCharacters = 16_384
+    private static let maxFindCharacters = 2_048
+
+    /// Selected session is live, or broadcast can still reach another live tab.
+    private var canSend: Bool {
+        if isRunning { return true }
+        return broadcast && sessionManager.sessions.contains { $0.state == .running }
+    }
 
     var body: some View {
         let suggestionSuffix = self.suggestionSuffix(for: cachedSuggestion)
@@ -207,7 +216,7 @@ struct CommandStripView: View {
         // controls for the theme's tone (same trick as the exited banner).
         .environment(\.colorScheme, theme.isDark ? .dark : .light)
         .onAppear {
-            isExited = session.state.isExited
+            syncSessionState(session.state)
             if CommandStripFocus.consumePending() {
                 fieldFocused = true
             }
@@ -217,8 +226,16 @@ struct CommandStripView: View {
                 Task { @MainActor in findFocused = true }
             }
         }
-        .onReceive(session.$state) { isExited = $0.isExited }
+        .onDisappear {
+            releaseTransientStrings()
+            session.terminalView.clearSearch()
+        }
+        .onReceive(session.$state) { syncSessionState($0) }
         .onChange(of: text) { _, newText in
+            if newText.count > Self.maxDraftCharacters {
+                text = String(newText.prefix(Self.maxDraftCharacters))
+                return
+            }
             cachedSuggestion = (fieldFocused && !newText.isEmpty)
                 ? (historyStore.history.autosuggestion(forPrefix: newText) ?? "") : ""
         }
@@ -239,7 +256,7 @@ struct CommandStripView: View {
         }
         .alert(L("确认发送高风险命令"), isPresented: pendingRiskPresented) {
             Button(L("仍然发送"), role: .destructive) {
-                sendNow()
+                sendNow(pendingCommand)
                 pendingRisk = nil
                 pendingCommand = ""
             }
@@ -282,7 +299,7 @@ struct CommandStripView: View {
                 CommandBarIconButton(
                     systemName: "clear",
                     help: L("清空终端 (clear)"),
-                    disabled: isExited,
+                    disabled: !canSend,
                     theme: theme
                 ) { clearTerminal() }
             }
@@ -412,8 +429,9 @@ struct CommandStripView: View {
                                                 : AnyShapeStyle(SwiftUI.Color.accentColor))
         }
         .buttonStyle(.plain)
-        .disabled(text.isEmpty)
-        .help("发送到当前会话 (⏎)")
+        .disabled(!canSend)
+        .opacity(canSend ? 1 : 0.45)
+        .help(canSend ? "发送到当前会话 (⏎)" : "会话未运行，无法发送")
     }
 
     // MARK: History
@@ -465,7 +483,15 @@ struct CommandStripView: View {
                 .foregroundStyle(theme.chromePrimaryTextColor)
                 .focused($findFocused)
                 .onSubmit { find(forward: true) }
-                .onChange(of: findText) { _, _ in findStatus = .idle; findCurrentMatch = 0 }
+                .onChange(of: findText) { _, newText in
+                    if newText.count > Self.maxFindCharacters {
+                        findText = String(newText.prefix(Self.maxFindCharacters))
+                        return
+                    }
+                    findStatus = .idle
+                    findCurrentMatch = 0
+                    findMatchCount = 0
+                }
                 .padding(.vertical, 5)
 
             if findStatus == .notFound, !findText.isEmpty {
@@ -503,30 +529,38 @@ struct CommandStripView: View {
     /// live session when broadcast is on — then record history and clear.
     /// Empty field sends a bare \n so interactive prompts (sudo, less, read…) work.
     private func send() {
-        guard !isExited else { return }
-        if let risk = CommandRiskDetector.detect(in: text) {
+        guard canSend else { return }
+        if let risk = CommandExecutionCoordinator.confirmationRisk(for: text) {
             pendingRisk = risk
             pendingCommand = text
             return
         }
-        sendNow()
+        sendNow(text)
     }
 
-    private func sendNow() {
-        guard !isExited else { return }
-        let payload = text.isEmpty ? "\n" : text + "\n"
+    private func sendNow(_ raw: String? = nil) {
+        guard canSend else { return }
+        let command = raw ?? text
+        let payload = command.isEmpty ? "\n" : command + "\n"
         let targets: [TerminalSession] = broadcast
-            ? sessionManager.sessions.filter { !$0.state.isExited }
+            ? sessionManager.sessions.filter { $0.state == .running }
             : [session]
-        for target in targets {
-            target.terminalView.send(txt: payload)
-            target.terminalView.scrollToBottom()
+        var sent = false
+        for target in targets where target.state == .running {
+            // sendText already no-ops when the PTY is not running and scrolls.
+            target.sendText(payload)
+            sent = true
         }
-        if !text.isEmpty {
-            historyStore.record(text)
-            text = ""
-            navigator.reset()
+        guard sent else { return }
+        if !command.isEmpty {
+            historyStore.record(command)
         }
+        // Always drop the draft after a successful send so a huge paste cannot
+        // sit in @State until the next keystroke.
+        text = ""
+        cachedSuggestion = ""
+        pendingCommand = ""
+        navigator.reset()
     }
 
     private var pendingRiskPresented: Binding<Bool> {
@@ -537,14 +571,13 @@ struct CommandStripView: View {
     /// screen (and scrollback where the shell supports it) — remote-aware,
     /// consistent with how Send reaches the terminal. Broadcast-aware.
     private func clearTerminal() {
-        guard !isExited else { return }
+        guard canSend else { return }
         let payload = "clear\n"
         let targets: [TerminalSession] = broadcast
-            ? sessionManager.sessions.filter { !$0.state.isExited }
+            ? sessionManager.sessions.filter { $0.state == .running }
             : [session]
-        for target in targets {
-            target.terminalView.send(txt: payload)
-            target.terminalView.scrollToBottom()
+        for target in targets where target.state == .running {
+            target.sendText(payload)
         }
     }
 
@@ -564,6 +597,8 @@ struct CommandStripView: View {
         findVisible = false
         findStatus = .idle
         findCurrentMatch = 0
+        findMatchCount = 0
+        findText = ""
         session.terminalView.clearSearch()
         // Hand focus back to the terminal so the user keeps working.
         let terminal = session.terminalView
@@ -571,6 +606,22 @@ struct CommandStripView: View {
             guard let window = terminal.window, terminal.superview != nil else { return }
             window.makeFirstResponder(terminal)
         }
+    }
+
+    private func syncSessionState(_ state: TerminalSession.State) {
+        isExited = state.isExited
+        isRunning = state == .running
+    }
+
+    private func releaseTransientStrings() {
+        text = ""
+        cachedSuggestion = ""
+        pendingCommand = ""
+        findText = ""
+        findStatus = .idle
+        findCurrentMatch = 0
+        findMatchCount = 0
+        findVisible = false
     }
 
     /// Run a find in the selected terminal (find is per-terminal, never broadcast).

@@ -4,6 +4,42 @@ import SwiftUI
 import HarborKit
 import SwiftTerm
 
+/// Single source of truth for terminal font UserDefaults keys and defaults.
+enum TerminalFontPreference {
+    static let fontNameKey = "terminalFontName"
+    static let fontSizeKey = "terminalFontSize"
+    static let defaultFontName = "Menlo"
+    static let defaultFontSize: Double = 13.0
+    static let minFontSize: Double = 9.0
+    static let maxFontSize: Double = 32.0
+}
+
+/// Font zoom (⌘+/⌘−): persists to the shared UserDefaults keys so settings
+/// and every open terminal pick the change up via @AppStorage.
+extension LocalProcessTerminalView {
+    public func zoomIn() { zoomFontSize(by: 0.5) }
+    public func zoomOut() { zoomFontSize(by: -0.5) }
+
+    private func zoomFontSize(by delta: Double) {
+        let defaults = UserDefaults.standard
+        let raw = defaults.double(forKey: TerminalFontPreference.fontSizeKey)
+        let current = raw > 0 ? raw : TerminalFontPreference.defaultFontSize
+        let clamped = min(max(current + delta, TerminalFontPreference.minFontSize), TerminalFontPreference.maxFontSize)
+        guard clamped != current else { return }
+        defaults.set(clamped, forKey: TerminalFontPreference.fontSizeKey)
+        applyPersistedFont()
+    }
+
+    private func applyPersistedFont() {
+        let defaults = UserDefaults.standard
+        let size = defaults.double(forKey: TerminalFontPreference.fontSizeKey)
+        let resolved = size > 0 ? CGFloat(size) : CGFloat(TerminalFontPreference.defaultFontSize)
+        let name = defaults.string(forKey: TerminalFontPreference.fontNameKey) ?? TerminalFontPreference.defaultFontName
+        font = NSFont(name: name, size: resolved)
+            ?? NSFont.monospacedSystemFont(ofSize: resolved, weight: .regular)
+    }
+}
+
 /// Hosts a session's long-lived `LocalProcessTerminalView` inside SwiftUI.
 ///
 /// The terminal NSView is owned by the `TerminalSession`, NOT created here, so
@@ -21,8 +57,8 @@ struct TerminalHostingView: NSViewRepresentable {
     let session: TerminalSession
     let isSelected: Bool
 
-    @AppStorage("terminalFontName") private var terminalFontName = "Menlo"
-    @AppStorage("terminalFontSize") private var terminalFontSize = 13.0
+    @AppStorage(TerminalFontPreference.fontNameKey) private var terminalFontName = TerminalFontPreference.defaultFontName
+    @AppStorage(TerminalFontPreference.fontSizeKey) private var terminalFontSize = TerminalFontPreference.defaultFontSize
     @AppStorage("themeID") private var themeID = TerminalTheme.defaultThemeID
     @AppStorage("optionAsMeta") private var optionAsMeta = true
     @AppStorage(TerminalBackgroundPreference.storageKey) private var backgroundRaw = ""
@@ -68,9 +104,10 @@ struct TerminalHostingView: NSViewRepresentable {
                 newTerminal.apply(theme: theme)
                 coordinator.appliedThemeID = themeID
                 // Font + optionAsMeta
-                let fontName = UserDefaults.standard.string(forKey: "terminalFontName") ?? "Menlo"
-                let rawSize = UserDefaults.standard.double(forKey: "terminalFontSize")
-                let size = rawSize > 0 ? CGFloat(rawSize) : 13.0
+                let fontName = UserDefaults.standard.string(forKey: TerminalFontPreference.fontNameKey)
+                    ?? TerminalFontPreference.defaultFontName
+                let rawSize = UserDefaults.standard.double(forKey: TerminalFontPreference.fontSizeKey)
+                let size = rawSize > 0 ? CGFloat(rawSize) : CGFloat(TerminalFontPreference.defaultFontSize)
                 let font = NSFont(name: fontName, size: size)
                     ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
                 newTerminal.font = font

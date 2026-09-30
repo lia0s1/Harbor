@@ -95,6 +95,7 @@ final class MonitorParsersTests: XCTestCase {
 
         XCTAssertEqual(snap.interfaces.map(\.name), ["lo", "eth0", "br-d2acf1a66c1b"])
         XCTAssertEqual(snap.disks.map(\.mount), ["/", "/boot/efi", "/data"])
+        XCTAssertEqual(snap.disks.map(\.device), ["/dev/vda1", "/dev/vda15", "/dev/sdb1"])
         XCTAssertEqual(snap.topProcesses.count, 6)
     }
 
@@ -353,7 +354,9 @@ final class MonitorParsersTests: XCTestCase {
         Filesystem 1024-blocks Used Available Capacity Mounted on
         /dev/sdc1 1000 100 900 10% /mnt/my disk
         """)
-        XCTAssertEqual(disks, [DiskUsage(mount: "/mnt/my disk", totalKB: 1000, availableKB: 900)])
+        XCTAssertEqual(disks, [DiskUsage(
+            mount: "/mnt/my disk", totalKB: 1000, availableKB: 900, device: "/dev/sdc1"
+        )])
     }
 
     func testParseDFDedupesByMountPoint() {
@@ -363,6 +366,79 @@ final class MonitorParsersTests: XCTestCase {
         /dev/sda1 1000 100 900 10% /
         """)
         XCTAssertEqual(disks.count, 1)
+    }
+
+    func testParseDFWithFstypeColumn() {
+        // GNU `df -T` shape: Filesystem Type 1024-blocks Used Available
+        // Capacity Mounted-on. The parser must shift every column by one and
+        // keep device + fstype; long device names must not break detection.
+        let disks = MonitorParsers.parseDF("""
+        Filesystem                     Type 1024-blocks       Used Available Capacity Mounted on
+        /dev/vda1                      ext4   82043980  24013880  54658188      31% /
+        tmpfs                          tmpfs    396176      1124    395052       1% /run
+        overlay                        overlay 82043980  24013880  54658188      31% /var/lib/docker/overlay2/x/merged
+        /dev/mapper/vg--data--lv--data   xfs 515928320 123456789 366178904      26% /data
+        """)
+        XCTAssertEqual(disks.map(\.mount), ["/", "/data"])
+        XCTAssertEqual(disks[0].device, "/dev/vda1")
+        XCTAssertEqual(disks[0].fstype, "ext4")
+        XCTAssertEqual(disks[0].totalKB, 82_043_980)
+        XCTAssertEqual(disks[0].availableKB, 54_658_188)
+        XCTAssertEqual(disks[1].device, "/dev/mapper/vg--data--lv--data")
+        XCTAssertEqual(disks[1].fstype, "xfs")
+        XCTAssertEqual(disks[1].totalKB, 515_928_320)
+        XCTAssertEqual(disks[1].availableKB, 366_178_904)
+    }
+
+    func testParseDFSkipsFuseMounts() {
+        // fuse.* FUSE mounts (rclone/sshfs/encfs…) are pseudo-filesystems.
+        let disks = MonitorParsers.parseDF("""
+        Filesystem 1024-blocks Used Available Capacity Mounted on
+        /dev/vda1 82043980 24013880 54658188 31% /
+        fuse.rclone 1000000 1000 999000 1% /mnt/remote
+        fuse.encfs 500000 100 499900 1% /mnt/secure
+        """)
+        XCTAssertEqual(disks.map(\.mount), ["/"])
+    }
+
+    func testParseDFRowsWithoutUsableNumbersAreSkipped() {
+        // Both header shapes and a garbled row fall through without crashing.
+        XCTAssertTrue(MonitorParsers.parseDF("""
+        Filesystem 1024-blocks Used Available Capacity Mounted on
+        Filesystem Type 1024-blocks Used Available Capacity Mounted on
+        /dev/vda1 ext4 not-a-number 24013880 54658188 31% /
+        """).isEmpty)
+    }
+
+    func testContainerOverlayFallbackParsesOverlayRowsOnly() {
+        // Nine-section payload whose df section has ONLY overlay rows (a
+        // merged/container root): the fallback returns them flagged.
+        let payload = """
+        Linux
+        @@HARBOR@@
+        @@HARBOR@@
+        @@HARBOR@@
+        @@HARBOR@@
+        @@HARBOR@@
+        @@HARBOR@@
+        Filesystem 1024-blocks Used Available Capacity Mounted on
+        overlay 82043980 24013880 54658188 31% /var/lib/docker/overlay2/abc/merged
+        overlay 82043980 24013880 54658188 31% /
+        @@HARBOR@@
+        @@HARBOR@@
+        """
+        let overlays = MonitorParsers.parseContainerOverlayDisks(fromPayload: payload)
+        XCTAssertEqual(overlays.count, 2)
+        XCTAssertTrue(overlays.allSatisfy(\.isContainerOverlay))
+        XCTAssertEqual(overlays[0].device, "overlay")
+        XCTAssertEqual(overlays[0].fstype, "overlay")
+        XCTAssertEqual(overlays[0].totalKB, 82_043_980)
+        XCTAssertEqual(overlays[0].availableKB, 54_658_188)
+        XCTAssertEqual(overlays[1].mount, "/")
+        // The regular parser still filters them — the fallback is additive.
+        XCTAssertTrue(MonitorParsers.parseDF("""
+        overlay 82043980 24013880 54658188 31% /
+        """).isEmpty)
     }
 
     func testDiskUsageDerivedValues() {

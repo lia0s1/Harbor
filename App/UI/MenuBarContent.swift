@@ -43,6 +43,28 @@ struct MenuBarContent: View {
         }
 
         Divider()
+        Button(L("新建主机")) {
+            if showMainWindow() {
+                NotificationCenter.default.post(name: .harborNewHost, object: nil)
+            } else {
+                // A freshly opened window mounts HostListView asynchronously,
+                // so its .harborNewHost onReceive does not exist yet; defer.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    NotificationCenter.default.post(name: .harborNewHost, object: nil)
+                }
+            }
+        }
+        .keyboardShortcut("n", modifiers: .command)
+        Button(L("设置…")) {
+            NSApp.activate(ignoringOtherApps: true)
+            let selector = Selector(("showSettingsWindow:"))
+            if NSApp.responds(to: selector) {
+                _ = NSApp.perform(selector, with: nil)
+            }
+        }
+        .keyboardShortcut(",", modifiers: .command)
+
+        Divider()
         Button(L("退出 Harbor")) { NSApp.terminate(nil) }
             .keyboardShortcut("q", modifiers: .command)
     }
@@ -53,20 +75,23 @@ struct MenuBarContent: View {
     }
 
     private func connect(_ host: SSHHost) {
-        sessionManager.openSession(host: host)
         showMainWindow()
+        PendingHostConnect.request(host.id)
     }
 
     /// Raise the existing main window if it is still around; otherwise ask the
     /// WindowGroup to make a fresh one. Avoids spawning duplicate windows.
-    private func showMainWindow() {
+    /// Returns true when an existing window was raised synchronously.
+    @discardableResult
+    private func showMainWindow() -> Bool {
         NSApp.activate(ignoringOtherApps: true)
         if let existing = NSApp.windows.first(where: {
             $0.identifier?.rawValue.hasPrefix(HarborWindowID.main) == true && $0.canBecomeMain
         }) {
             existing.makeKeyAndOrderFront(nil)
-        } else {
-            openWindow(id: HarborWindowID.main)
+            return true
         }
+        openWindow(id: HarborWindowID.main)
+        return false
     }
 }

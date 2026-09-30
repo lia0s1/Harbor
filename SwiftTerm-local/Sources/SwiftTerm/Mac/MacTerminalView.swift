@@ -70,11 +70,36 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
             }
         }
         
-        public init(font baseFont: NSFont, fontSize: CGFloat? = nil) {
+        public init(font baseFont: NSFont) {
             self.normal = baseFont
-            self.bold = NSFontManager.shared.convert(baseFont, toHaveTrait: [.boldFontMask])
-            self.italic = NSFontManager.shared.convert(baseFont, toHaveTrait: [.italicFontMask])
-            self.boldItalic = NSFontManager.shared.convert(baseFont, toHaveTrait: [.italicFontMask, .boldFontMask])
+            self.bold = FontSet.derive(baseFont, traits: [.boldFontMask])
+            self.italic = FontSet.derive(baseFont, traits: [.italicFontMask])
+            self.boldItalic = FontSet.derive(baseFont, traits: [.italicFontMask, .boldFontMask])
+        }
+
+        // NSFontManager.convert is a no-op for system-created fonts (e.g.
+        // monospacedSystemFont), so fall back to an explicit bold member or a
+        // descriptor lookup when the conversion returns the input unchanged.
+        private static func derive(_ baseFont: NSFont, traits: NSFontTraitMask) -> NSFont {
+            let converted = NSFontManager.shared.convert(baseFont, toHaveTrait: traits)
+            if converted.fontName != baseFont.fontName {
+                return converted
+            }
+            let size = baseFont.pointSize
+            let wantsBold = traits.contains(.boldFontMask)
+            let wantsItalic = traits.contains(.italicFontMask)
+            if wantsBold && !wantsItalic,
+               baseFont.fontName == NSFont.monospacedSystemFont(ofSize: size, weight: .regular).fontName {
+                return NSFont.monospacedSystemFont(ofSize: size, weight: .bold)
+            }
+            var symbolic: NSFontDescriptor.SymbolicTraits = []
+            if wantsBold { symbolic.insert(.bold) }
+            if wantsItalic { symbolic.insert(.italic) }
+            if let member = NSFont(descriptor: baseFont.fontDescriptor.withSymbolicTraits(symbolic), size: size),
+               member.fontName != baseFont.fontName {
+                return member
+            }
+            return converted
         }
 
         // Expected by the shared rendering code
@@ -150,6 +175,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
 
     var selection: SelectionService!
     private var scroller: NSScroller!
+    private var scrollerWidthConstraint: NSLayoutConstraint?
 
     /// Serial queue that serializes calls to feed() so the thread-safe
     /// guarantee in its documentation is actually upheld.  Without this,
@@ -513,7 +539,9 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         }
     }
 
-    let scrollerStyle: NSScroller.Style = .legacy
+    var scrollerStyle: NSScroller.Style {
+        NSScroller.preferredScrollerStyle
+    }
 
     func getScrollerFrame() -> CGRect {
         let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: scrollerStyle)
@@ -529,12 +557,14 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
 
             // Use Auto Layout to position the scroller. This ensures correct layout
             // whether the parent view uses frame-based or constraint-based layout.
+            let widthConstraint = scroller.widthAnchor.constraint(equalToConstant: scrollerWidth)
             NSLayoutConstraint.activate([
                 scroller.trailingAnchor.constraint(equalTo: trailingAnchor),
                 scroller.topAnchor.constraint(equalTo: topAnchor),
                 scroller.bottomAnchor.constraint(equalTo: bottomAnchor),
-                scroller.widthAnchor.constraint(equalToConstant: scrollerWidth)
+                widthConstraint
             ])
+            scrollerWidthConstraint = widthConstraint
         }
         scroller.scrollerStyle = scrollerStyle
         scroller.knobProportion = 0.1
@@ -547,7 +577,12 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
 
     func updateScrollerFrame() {
-        // Scroller position is managed by Auto Layout constraints
+        if scrollerWidthConstraint?.constant != scrollerWidth {
+            scrollerWidthConstraint?.constant = scrollerWidth
+        }
+        if scroller.scrollerStyle != scrollerStyle {
+            scroller.scrollerStyle = scrollerStyle
+        }
     }
 
     /// This method sents the `nativeForegroundColor` and `nativeBackgroundColor`
@@ -567,7 +602,11 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
         
     private var scrollerWidth: CGFloat {
-        NSScroller.scrollerWidth(for: .regular, scrollerStyle: scrollerStyle)
+        // Overlay scrollers float above content and take no layout space
+        if scrollerStyle == .overlay {
+            return 0
+        }
+        return NSScroller.scrollerWidth(for: .regular, scrollerStyle: scrollerStyle)
     }
 
     /**
@@ -699,6 +738,14 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         needsDisplay = true
 #endif
         updateCursorPosition()
+    }
+
+    // Moving between screens with different backing scales changes the
+    // pixel-snapped cell metrics, so recompute them like a font change would.
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        guard cellDimension != nil else { return }
+        resetFont()
     }
 
     public override func resizeSubviews(withOldSize oldSize: NSSize) {
@@ -2350,7 +2397,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     
     public func resetFontSize ()
     {
-        fontSet = FontSet (font: FontSet.defaultFont)
+        font = FontSet.defaultFont
     }
     
     func getImageScale () -> CGFloat {

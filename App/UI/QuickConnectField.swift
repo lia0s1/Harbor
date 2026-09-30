@@ -37,7 +37,12 @@ struct QuickConnectField: View {
     @EnvironmentObject private var sessionManager: SessionManager
     @State private var text = ""
     @State private var errorMessage: String?
+    @State private var isSubmitting = false
     @FocusState private var isFocused: Bool
+
+    private var canSubmit: Bool {
+        !isSubmitting && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
@@ -51,6 +56,7 @@ struct QuickConnectField: View {
                     .font(.system(size: 12, design: .monospaced))
                     .focused($isFocused)
                     .onSubmit(connect)
+                    .disabled(isSubmitting)
                 if !isFocused && text.isEmpty {
                     Text("⌘T")
                         .font(.caption2.monospaced())
@@ -101,6 +107,9 @@ struct QuickConnectField: View {
     }
 
     private func connect() {
+        guard canSubmit else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
         do {
             let host = try QuickConnectParser.parse(text)
             errorMessage = nil

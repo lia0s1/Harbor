@@ -4,14 +4,74 @@ import Foundation
 /// the ControlMaster socket) off the main thread, with a hard timeout.
 /// Plain Foundation Process — never a PTY, never a local shell.
 enum AuxProcess {
-    struct Output {
+    struct Output: Sendable {
+        enum Stream: String, Sendable, Equatable {
+            case stdout
+            case stderr
+        }
+
+        /// A bounded-output or pipe-read failure.  Kept separate from the
+        /// process exit status so callers that need to distinguish an SSH
+        /// failure from a local resource limit can do so without parsing text.
+        enum Failure: Sendable, Equatable {
+            case outputLimitExceeded(Stream)
+            case outputReadFailed(Stream)
+        }
+
         let exitCode: Int32
         let stdout: Data
         let stderr: Data
         let timedOut: Bool
+        let failure: Failure?
+
+        init(
+            exitCode: Int32,
+            stdout: Data,
+            stderr: Data,
+            timedOut: Bool,
+            failure: Failure? = nil
+        ) {
+            self.exitCode = exitCode
+            self.stdout = stdout
+            self.stderr = stderr
+            self.timedOut = timedOut
+            self.failure = failure
+        }
 
         var stdoutText: String { String(decoding: stdout, as: UTF8.self) }
         var stderrText: String { String(decoding: stderr, as: UTF8.self) }
+
+        var outputLimitExceeded: Bool {
+            if case .outputLimitExceeded = failure { return true }
+            return false
+        }
+
+        var failureDescription: String? {
+            switch failure {
+            case .outputLimitExceeded(let stream):
+                return "Command \(stream.rawValue) exceeded Harbor's output limit."
+            case .outputReadFailed(let stream):
+                return "Harbor could not read command \(stream.rawValue)."
+            case nil:
+                return nil
+            }
+        }
+    }
+
+    /// Per-stream caps for short-lived helpers.  A remote peer controls the
+    /// output of ssh/sftp commands, so retaining it until EOF must never make
+    /// the app's memory usage unbounded.  Limits can be narrowed by a caller
+    /// that expects a small reply (for example, a monitoring probe).
+    struct OutputLimits: Sendable, Equatable {
+        let stdout: Int
+        let stderr: Int
+
+        init(stdout: Int = 8 * 1024 * 1024, stderr: Int = 1 * 1024 * 1024) {
+            self.stdout = max(0, stdout)
+            self.stderr = max(0, stderr)
+        }
+
+        static let `default` = OutputLimits()
     }
 
     /// Spawns `argv` (argv[0] = executable path) and waits for exit, killing
@@ -21,7 +81,13 @@ enum AuxProcess {
     /// closed (used for `sftp -b -` batch scripts); otherwise stdin is null.
     /// When `environment` is non-nil it replaces the inherited environment
     /// (used to inject an `SSH_ASKPASS` helper for one-time password auth).
-    static func run(argv: [String], stdin stdinData: Data? = nil, environment: [String: String]? = nil, timeout: TimeInterval = 5) async -> Output {
+    static func run(
+        argv: [String],
+        stdin stdinData: Data? = nil,
+        environment: [String: String]? = nil,
+        timeout: TimeInterval = 5,
+        outputLimits: OutputLimits = .default
+    ) async -> Output {
         guard let executable = argv.first else {
             return Output(exitCode: -1, stdout: Data(), stderr: Data(), timedOut: false)
         }
@@ -117,15 +183,30 @@ enum AuxProcess {
                         deadline: .now() + timeout, execute: watchdog
                     )
 
-                    // Drain stderr on a second queue so a full pipe buffer can
-                    // never deadlock the child; read stdout here.
-                    let errData = LockedData()
+                    // Drain both pipes incrementally.  Each collector keeps at
+                    // most its configured cap; on overflow it terminates the
+                    // child, then continues discarding data until EOF so a full
+                    // pipe can never block reaping.
+                    let outData = BoundedDataCollector(limit: outputLimits.stdout)
+                    let errData = BoundedDataCollector(limit: outputLimits.stderr)
                     let errDone = DispatchSemaphore(value: 0)
                     DispatchQueue.global(qos: .utility).async {
-                        errData.store(errPipe.fileHandleForReading.readDataToEndOfFile())
+                        drain(
+                            errPipe.fileHandleForReading,
+                            into: errData,
+                            stream: .stderr,
+                            pid: pid,
+                            state: state
+                        )
                         errDone.signal()
                     }
-                    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    drain(
+                        outPipe.fileHandleForReading,
+                        into: outData,
+                        stream: .stdout,
+                        pid: pid,
+                        state: state
+                    )
                     process.waitUntilExit()
                     // Mark finished the instant the child is reaped, BEFORE any
                     // further work: past this point the PID may be recycled by the
@@ -139,11 +220,30 @@ enum AuxProcess {
                     errDone.wait()
                     watchdog.cancel()
 
+                    // The stderr reader can still be draining buffered bytes
+                    // after waitUntilExit() returns, so fetch the final failure
+                    // only after both readers have reached EOF.
+                    state.lock.lock()
+                    let failure = state.failure
+                    state.lock.unlock()
+
+                    let capturedStderr = errData.value()
+                    let renderedStderr = stderrWithFailureMarker(
+                        capturedStderr,
+                        limit: outputLimits.stderr,
+                        failure: failure
+                    )
+
                     continuation.resume(returning: Output(
-                        exitCode: process.terminationStatus,
-                        stdout: outData,
-                        stderr: errData.value(),
-                        timedOut: didTimeOut
+                        // A process may exit 0 in the small window between an
+                        // overflow being observed and SIGTERM delivery.  Make
+                        // resource-limit failures non-successful for existing
+                        // callers that only check the status code.
+                        exitCode: failure == nil ? process.terminationStatus : -1,
+                        stdout: outData.value(),
+                        stderr: renderedStderr,
+                        timedOut: didTimeOut,
+                        failure: failure
                     ))
                 }
             }
@@ -172,19 +272,40 @@ enum AuxProcess {
         var cancelled = false
         /// The watchdog fired before the child exited.
         var timedOut = false
+        /// First terminal reader failure wins; callers get a stable, typed
+        /// reason even if both pipes become oversized concurrently.
+        var failure: Output.Failure?
     }
 
-    /// One-producer/one-consumer handoff for stderr. A semaphore establishes
-    /// ordering at runtime, while the lock also makes that synchronization
-    /// explicit to Swift's strict-concurrency checker.
-    private final class LockedData: @unchecked Sendable {
+    /// Lock-protected, bounded stream collector.  It retains only the first
+    /// `limit` bytes and then keeps draining/discarding data until EOF.
+    private final class BoundedDataCollector: @unchecked Sendable {
         private let lock = NSLock()
+        private let limit: Int
         private var data = Data()
+        private var exceeded = false
 
-        func store(_ value: Data) {
+        init(limit: Int) {
+            self.limit = limit
+        }
+
+        /// Returns false once this stream reached its limit.  The caller must
+        /// still continue reading the pipe to avoid deadlocking the child.
+        func append(_ value: Data) -> Bool {
             lock.lock()
-            data = value
-            lock.unlock()
+            defer { lock.unlock() }
+            guard !exceeded else { return false }
+
+            let remaining = limit - data.count
+            guard value.count <= remaining else {
+                if remaining > 0 {
+                    data.append(contentsOf: value.prefix(remaining))
+                }
+                exceeded = true
+                return false
+            }
+            data.append(value)
+            return true
         }
 
         func value() -> Data {
@@ -192,6 +313,72 @@ enum AuxProcess {
             defer { lock.unlock() }
             return data
         }
+    }
+
+    private static let readChunkSize = 64 * 1024
+
+    /// Reads a pipe in bounded chunks.  This must be called for both stdout
+    /// and stderr concurrently; otherwise a chatty child could block on the
+    /// undrained pipe before its timeout/overflow is observed.
+    private static func drain(
+        _ handle: FileHandle,
+        into collector: BoundedDataCollector,
+        stream: Output.Stream,
+        pid: pid_t,
+        state: State
+    ) {
+        do {
+            while let chunk = try handle.read(upToCount: readChunkSize), !chunk.isEmpty {
+                if !collector.append(chunk) {
+                    recordFailure(.outputLimitExceeded(stream), pid: pid, state: state)
+                }
+            }
+        } catch {
+            // A read error would otherwise leave the other side of the pipe
+            // undrained and the reaper blocked forever.  Surface it explicitly
+            // and use the same bounded termination path as an overflow.
+            recordFailure(.outputReadFailed(stream), pid: pid, state: state)
+        }
+    }
+
+    /// Records the first failure and terminates the child exactly once for
+    /// that condition.  `terminate` itself remains safe to race with timeout
+    /// and cancellation, which use the same lock-gated finished state.
+    private static func recordFailure(_ failure: Output.Failure, pid: pid_t, state: State) {
+        state.lock.lock()
+        let shouldTerminate = state.failure == nil && !state.finished
+        if state.failure == nil {
+            state.failure = failure
+        }
+        state.lock.unlock()
+        if shouldTerminate {
+            terminate(pid: pid, state: state)
+        }
+    }
+
+    /// Existing callers already surface stderr on failure.  Preserve that
+    /// behavior while reserving a clear diagnostic for an output cap/read
+    /// failure; the returned Data still stays within the configured cap.
+    private static func stderrWithFailureMarker(
+        _ stderr: Data,
+        limit: Int,
+        failure: Output.Failure?
+    ) -> Data {
+        guard let failure else { return stderr }
+        let text: String
+        switch failure {
+        case .outputLimitExceeded(let stream):
+            text = "[Harbor] Command \(stream.rawValue) exceeded the output limit.\n"
+        case .outputReadFailed(let stream):
+            text = "[Harbor] Could not read command \(stream.rawValue).\n"
+        }
+        let marker = Data(text.utf8)
+        guard limit > 0 else { return Data() }
+        if marker.count >= limit { return Data(marker.prefix(limit)) }
+        let keep = min(stderr.count, limit - marker.count)
+        var result = Data(stderr.prefix(keep))
+        result.append(marker)
+        return result
     }
 
     /// SIGTERM the captured PID, then SIGKILL one second later if it still has

@@ -187,11 +187,25 @@ struct MCPAuthorization: Sendable, Equatable {
 
 // MARK: - MCP Server
 
+private final class MCPSession {
+    enum Phase: Equatable {
+        case awaitingInitialize
+        case awaitingInitializedNotification
+        case initialized
+    }
+
+    var phase: Phase = .awaitingInitialize
+}
+
 struct MCPServer {
+    private static let jsonRPCVersion = "2.0"
+    private static let protocolVersion = "2024-11-05"
+
     let socketDir: String
     let hostsURL: URL
     let limits: MCPLimits
     let authorization: MCPAuthorization
+    private let session = MCPSession()
 
     init() {
         self.init(
@@ -292,10 +306,20 @@ struct MCPServer {
         let id = req["id"]
         let hasId = req.keys.contains("id")
 
-        guard hasId else { return nil } // notifications: no response
-        guard let method = req["method"] as? String, !method.isEmpty else {
-            return rpcError(id, -32600, "Invalid Request")
+        guard req["jsonrpc"] as? String == Self.jsonRPCVersion else {
+            return rpcError(hasId ? id : NSNull(), -32600, "Invalid Request")
         }
+        guard let method = req["method"] as? String, !method.isEmpty else {
+            return rpcError(hasId ? id : NSNull(), -32600, "Invalid Request")
+        }
+
+        guard hasId else {
+            return handleNotification(method, request: req)
+        }
+        guard isValidRequestID(id) else {
+            return rpcError(NSNull(), -32600, "Invalid Request")
+        }
+
         let params: [String: Any]
         if let rawParams = req["params"] {
             guard let object = rawParams as? [String: Any] else {
@@ -308,16 +332,36 @@ struct MCPServer {
 
         switch method {
         case "initialize":
+            guard session.phase == .awaitingInitialize else {
+                return rpcError(id, -32600, "Invalid Request: initialize has already completed")
+            }
+            guard isValidInitializeParams(params) else {
+                return rpcError(id, -32602, "Invalid params")
+            }
+            let requestedProtocolVersion = params["protocolVersion"] as! String
+            guard requestedProtocolVersion == Self.protocolVersion else {
+                return rpcError(id, -32602, "Unsupported protocol version", data: [
+                    "supported": [Self.protocolVersion],
+                    "requested": requestedProtocolVersion,
+                ])
+            }
+            session.phase = .awaitingInitializedNotification
             return ok(id, result: [
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": Self.protocolVersion,
                 "capabilities": ["tools": [:] as [String: Any]],
                 "serverInfo": ["name": "harbor-mcp", "version": "1.0.0"],
             ])
 
         case "tools/list":
+            guard session.phase == .initialized else {
+                return rpcError(id, -32600, "Server not initialized")
+            }
             return ok(id, result: ["tools": toolList])
 
         case "tools/call":
+            guard session.phase == .initialized else {
+                return rpcError(id, -32600, "Server not initialized")
+            }
             guard let name = params["name"] as? String, !name.isEmpty else {
                 return rpcError(id, -32602, "缺少工具名称")
             }
@@ -344,17 +388,47 @@ struct MCPServer {
         }
     }
 
-    func ok(_ id: Any?, result: [String: Any]) -> [String: Any] {
-        var r: [String: Any] = ["jsonrpc": "2.0", "result": result]
-        if let id { r["id"] = id }
-        return r
+    private func handleNotification(_ method: String, request: [String: Any]) -> [String: Any]? {
+        guard method == "notifications/initialized" else { return nil }
+        guard session.phase == .awaitingInitializedNotification else { return nil }
+        if let rawParams = request["params"], !(rawParams is [String: Any]) {
+            return nil
+        }
+        session.phase = .initialized
+        return nil
     }
 
-    func rpcError(_ id: Any?, _ code: Int, _ msg: String) -> [String: Any] {
-        var r: [String: Any] = ["jsonrpc": "2.0",
-                                 "error": ["code": code, "message": msg] as [String: Any]]
-        if let id { r["id"] = id }
-        return r
+    private func isValidInitializeParams(_ params: [String: Any]) -> Bool {
+        guard params["protocolVersion"] is String,
+              params["capabilities"] is [String: Any],
+              let clientInfo = params["clientInfo"] as? [String: Any],
+              clientInfo["name"] is String,
+              clientInfo["version"] is String else {
+            return false
+        }
+        return true
+    }
+
+    private func isValidRequestID(_ id: Any?) -> Bool {
+        guard let id else { return false }
+        if id is String { return true }
+        guard let number = id as? NSNumber else { return false }
+        return CFGetTypeID(number) != CFBooleanGetTypeID()
+            && number.doubleValue.rounded(.towardZero) == number.doubleValue
+    }
+
+    func ok(_ id: Any?, result: [String: Any]) -> [String: Any] {
+        ["jsonrpc": Self.jsonRPCVersion, "id": id ?? NSNull(), "result": result]
+    }
+
+    func rpcError(_ id: Any?, _ code: Int, _ msg: String, data: Any? = nil) -> [String: Any] {
+        var error: [String: Any] = ["code": code, "message": msg]
+        if let data { error["data"] = data }
+        return [
+            "jsonrpc": Self.jsonRPCVersion,
+            "id": id ?? NSNull(),
+            "error": error,
+        ]
     }
 
     // MARK: - Tool definitions
@@ -1080,8 +1154,16 @@ struct MCPServer {
         tmp=$(mktemp "$dir/.harbor-mcp.XXXXXX") || exit 1
         trap 'rm -f -- "$tmp"' EXIT HUP INT TERM
         cat > "$tmp" || exit 1
+        if [ -L "$target" ] || [ -d "$target" ]; then echo 'refusing to replace symbolic link or directory' >&2; rm -f -- "$tmp"; exit 1; fi
         if [ -e "$target" ]; then chmod --reference="$target" "$tmp" || exit 1; fi
-        { mv -T -- "$tmp" "$target" 2>/dev/null; } || { if [ -L "$target" ]; then echo 'refusing to replace symbolic link' >&2; exit 1; fi; mv -f -- "$tmp" "$target"; } || exit 1
+        if ln -fn -- "$tmp" "$target" 2>/dev/null; then
+          rm -f -- "$tmp"
+        elif ln -fT -- "$tmp" "$target"; then
+          rm -f -- "$tmp"
+        else
+          rm -f -- "$tmp"
+          exit 1
+        fi
         trap - EXIT HUP INT TERM
         """
         return RemoteWriteRequest(host: host, path: path, command: command, input: input)

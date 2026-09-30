@@ -326,7 +326,8 @@ private struct MonitorPanelContent: View {
             DiskCard(
                 disks: snap.disks,
                 diskReadBytesPerSec: monitor.diskReadBytesPerSec,
-                diskWriteBytesPerSec: monitor.diskWriteBytesPerSec
+                diskWriteBytesPerSec: monitor.diskWriteBytesPerSec,
+                onTap: { activeSheet = .detail(.disk) }
             )
             .equatable()
             // Cumulative since-boot traffic, right below 磁盘 as requested —
@@ -894,6 +895,7 @@ private struct DiskCard: View, @MainActor Equatable {
     let diskReadBytesPerSec: Double
     /// Current write speed for the busiest disk in bytes/sec (0 until first delta).
     let diskWriteBytesPerSec: Double
+    let onTap: () -> Void
 
     static func == (a: DiskCard, b: DiskCard) -> Bool {
         a.disks == b.disks
@@ -902,7 +904,7 @@ private struct DiskCard: View, @MainActor Equatable {
     }
 
     var body: some View {
-        MonitorCard(L("磁盘"), symbol: "internaldrive") {
+        MonitorCard(L("磁盘"), symbol: "internaldrive", onTap: onTap) {
             if disks.isEmpty {
                 Text("暂无磁盘数据")
                     .font(.caption)
@@ -912,7 +914,9 @@ private struct DiskCard: View, @MainActor Equatable {
                     ForEach(disks, id: \.mount) { disk in
                         VStack(spacing: 2) {
                             HStack(alignment: .firstTextBaseline) {
-                                Text(disk.mount)
+                                // Overlay rows surfaced by the container fallback
+                                // are labeled instead of shown as a host mount.
+                                Text(disk.isContainerOverlay ? L("容器 overlay") : disk.mount)
                                     .font(.system(size: 10.5, design: .monospaced))
                                     .lineLimit(1)
                                     .truncationMode(.head)
@@ -1449,10 +1453,23 @@ private struct LatencyCardView: View {
                     }
                 }
                 if ping.latencySeries.isEmpty {
-                    Text("等待 ping 响应…")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    if let error = ping.lastError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(DS.Colors.statusError)
+                    } else {
+                        Text("等待 ping 响应…")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 } else {
+                    // A working ping that later died keeps its sparkline but
+                    // gets an inline hint instead of silently going stale.
+                    if let error = ping.lastError {
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(DS.Colors.statusError)
+                    }
                     LatencySparkline(samples: ping.latencySeries)
                 }
             }

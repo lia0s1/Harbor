@@ -38,10 +38,11 @@ struct RemotePathBar: View {
         Menu {
             let recents = service.recentPaths(20)
             if recents.isEmpty {
-                Text("暂无历史路径")
+                Text(L("暂无历史路径"))
             } else {
                 ForEach(recents, id: \.self) { path in
                     Button(path) { service.navigate(toPath: path) }
+                        .disabled(!isReady)
                 }
             }
         } label: {

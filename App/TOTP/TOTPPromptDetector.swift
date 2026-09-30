@@ -23,23 +23,29 @@ final class TOTPPromptDetector: @unchecked Sendable {
     }
     private var _onPromptDetected: (@MainActor @Sendable () -> Void)?
 
-    /// Case-insensitive needles, kept lowercase and matched against a lowercased
-    /// window. Short tokens ("2fa"/"otp") are specific enough in a login context
-    /// and the debounce guards against incidental matches in bulk output.
-    private static let patterns: [String] = [
+    /// Case-insensitive phrases, kept lowercase and matched against a
+    /// lowercased window. These are long enough that a raw `contains` is safe.
+    private static let phrases: [String] = [
         "verification code",
         "authentication code",
         "one-time password",
         "one time password",
         "authenticator",
-        "2fa",
-        "otp",
-        "totp",
         "6-digit code",
         "验证码",
         "两步验证",
         "动态口令"
     ]
+
+    /// Short tokens only match at a non-alphanumeric boundary so `hotpath`
+    /// / `totpauth` / `otpauth` do not light the banner.
+    private static let boundedTokens: [String] = [
+        "2fa",
+        "otp",
+        "totp"
+    ]
+
+    private static let alphanumerics = CharacterSet.alphanumerics
 
     /// Rolling lowercased window (bounded) carried across feeds so a prompt that
     /// straddles two chunks still matches.
@@ -71,7 +77,7 @@ final class TOTPPromptDetector: @unchecked Sendable {
         if window.count > maxWindow {
             window = String(window.suffix(maxWindow))
         }
-        if TOTPPromptDetector.patterns.contains(where: { window.contains($0) }) {
+        if TOTPPromptDetector.matches(window) {
             let now = Date()
             if lastFired.map({ now.timeIntervalSince($0) >= debounceInterval }) ?? true {
                 lastFired = now
@@ -93,5 +99,38 @@ final class TOTPPromptDetector: @unchecked Sendable {
         window = ""
         lastFired = nil
         lock.unlock()
+    }
+
+    private static func matches(_ window: String) -> Bool {
+        if phrases.contains(where: { window.contains($0) }) {
+            return true
+        }
+        return boundedTokens.contains(where: { containsBoundedToken(window, token: $0) })
+    }
+
+    /// True when `token` appears in `window` with a non-alphanumeric (or
+    /// start/end-of-string) boundary on both sides.
+    private static func containsBoundedToken(_ window: String, token: String) -> Bool {
+        var searchFrom = window.startIndex
+        while searchFrom < window.endIndex,
+              let range = window.range(of: token, range: searchFrom..<window.endIndex) {
+            let beforeOK: Bool
+            if range.lowerBound == window.startIndex {
+                beforeOK = true
+            } else {
+                let previous = window[window.index(before: range.lowerBound)]
+                beforeOK = previous.unicodeScalars.allSatisfy { !alphanumerics.contains($0) }
+            }
+            let afterOK: Bool
+            if range.upperBound == window.endIndex {
+                afterOK = true
+            } else {
+                let next = window[range.upperBound]
+                afterOK = next.unicodeScalars.allSatisfy { !alphanumerics.contains($0) }
+            }
+            if beforeOK && afterOK { return true }
+            searchFrom = range.upperBound
+        }
+        return false
     }
 }

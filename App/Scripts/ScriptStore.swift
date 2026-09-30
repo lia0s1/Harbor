@@ -61,17 +61,24 @@ final class ScriptStore: JSONFileStore<ScriptSnippet> {
     }
 
     func count(inCategory category: String) -> Int {
-        snippets(inCategory: category).count
+        let key = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        var total = 0
+        for snippet in snippets where snippet.category.trimmingCharacters(in: .whitespacesAndNewlines) == key {
+            total += 1
+        }
+        return total
     }
 
     // MARK: - Search
 
-    /// Case-insensitive match on title or content. An empty query returns all.
+    /// Case-insensitive match on title, category, or content. An empty query
+    /// returns the live store array (no extra copy). Callers must not mutate it.
     func search(_ query: String) -> [ScriptSnippet] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return snippets }
         return snippets.filter {
             $0.title.localizedCaseInsensitiveContains(q)
+                || $0.category.localizedCaseInsensitiveContains(q)
                 || $0.content.localizedCaseInsensitiveContains(q)
         }
     }

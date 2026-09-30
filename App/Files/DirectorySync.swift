@@ -8,6 +8,16 @@ struct DirectorySyncPreview: Identifiable, Sendable {
     let localDirectory: URL
     let remoteDirectory: String
     let changes: [DirectorySyncChange]
+    /// True when the planner hit the hard row cap. The sheet must show this
+    /// so a huge folder is never silently truncated.
+    let truncated: Bool
+    /// True when the REMOTE listing this comparison was built from was itself
+    /// hard-capped: remote rows past the cap are invisible, so every result
+    /// (and any upload) is unreliable until a narrower directory is compared.
+    let remoteListingTruncated: Bool
+    /// Subdirectories (and symlinked entries) skipped on both sides — only
+    /// top-level regular files are ever compared.
+    let skippedDirectories: Int
 
     var id: String { "\(localDirectory.path)|\(remoteDirectory)" }
 
@@ -53,7 +63,8 @@ enum DirectorySyncPlanner {
     static func makePreview(
         localDirectory: URL,
         remoteDirectory: String,
-        remoteEntries: [RemoteFileEntry]
+        remoteEntries: [RemoteFileEntry],
+        remoteListingTruncated: Bool = false
     ) throws -> DirectorySyncPreview {
         let keys: Set<URLResourceKey> = [
             .isRegularFileKey,
@@ -73,21 +84,36 @@ enum DirectorySyncPlanner {
         }
 
         var localFiles: [String: (url: URL, size: UInt64, mtime: Date)] = [:]
+        var localSkipped = 0
         for url in localURLs {
             let values = try? url.resourceValues(forKeys: keys)
-            guard values?.isRegularFile == true, values?.isSymbolicLink != true else { continue }
+            guard values?.isRegularFile == true, values?.isSymbolicLink != true else {
+                localSkipped += 1
+                continue
+            }
             let size = UInt64(values?.fileSize ?? 0)
             let mtime = values?.contentModificationDate ?? .distantPast
             localFiles[url.lastPathComponent] = (url, size, mtime)
         }
 
         var remoteFiles: [String: RemoteFileEntry] = [:]
-        for entry in remoteEntries where !entry.isDirectory && !entry.isSymlink {
+        var remoteSkipped = 0
+        for entry in remoteEntries {
+            guard !entry.isDirectory && !entry.isSymlink else {
+                remoteSkipped += 1
+                continue
+            }
             remoteFiles[entry.name] = entry
         }
         var changes: [DirectorySyncChange] = []
+        let cap = FileService.maxDirectoryEntries
+        var truncated = false
 
         for (name, local) in localFiles {
+            if changes.count >= cap {
+                truncated = true
+                break
+            }
             guard let remote = remoteFiles[name] else {
                 changes.append(DirectorySyncChange(
                     name: name,
@@ -115,6 +141,10 @@ enum DirectorySyncPlanner {
         }
 
         for (name, remote) in remoteFiles where localFiles[name] == nil {
+            if changes.count >= cap {
+                truncated = true
+                break
+            }
             changes.append(DirectorySyncChange(
                 name: name,
                 kind: .remoteOnly,
@@ -130,7 +160,10 @@ enum DirectorySyncPlanner {
         return DirectorySyncPreview(
             localDirectory: localDirectory,
             remoteDirectory: remoteDirectory,
-            changes: changes
+            changes: changes,
+            truncated: truncated,
+            remoteListingTruncated: remoteListingTruncated,
+            skippedDirectories: localSkipped + remoteSkipped
         )
     }
 }

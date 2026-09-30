@@ -19,6 +19,7 @@ struct TOTPSetupView: View {
     @State private var testCode: String?
     @State private var testError: String?
     @State private var hasExisting = false
+    @State private var showDeleteConfirmation = false
 
     /// The secret unwrapped from any pasted otpauth URL.
     private var normalizedSecret: String {
@@ -95,11 +96,29 @@ struct TOTPSetupView: View {
             footer
         }
         .frame(width: 460, height: 500)
+        .confirmationDialog(
+            L("删除两步验证密钥？"),
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(L("删除"), role: .destructive) {
+                TOTPStore.delete(for: hostID)
+                dismiss()
+            }
+            Button(L("取消"), role: .cancel) { }
+        } message: {
+            Text(L("将从钥匙串中删除 %@ 的 TOTP 密钥，此操作无法撤销。", hostName))
+        }
         .onAppear {
             if let existing = TOTPStore.load(for: hostID) {
                 secretInput = existing
                 hasExisting = true
             }
+        }
+        .onDisappear {
+            secretInput = ""
+            testCode = nil
+            testError = nil
         }
     }
 
@@ -107,8 +126,7 @@ struct TOTPSetupView: View {
         HStack {
             if hasExisting {
                 Button(L("删除"), role: .destructive) {
-                    TOTPStore.delete(for: hostID)
-                    dismiss()
+                    showDeleteConfirmation = true
                 }
                 .buttonStyle(.glass)
             }
@@ -196,12 +214,15 @@ struct TOTPStatusView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .disabled(code.isEmpty)
                 .help(L("复制验证码"))
 
                 if let onSend {
                     Button(L("发送到终端")) { onSend(code) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
+                        .disabled(code.isEmpty)
+                        .help(L("发送到终端"))
                 }
             }
             .padding(DS.Space.m)
@@ -296,9 +317,15 @@ struct TOTPAutoFillBanner: View {
 
                 Spacer(minLength: DS.Space.s)
 
-                Button(L("发送")) { onSend(code) }
+                Button(L("发送")) {
+                    guard !code.isEmpty else { return }
+                    onSend(code)
+                    dismissed = true
+                    onDismiss()
+                }
                     .buttonStyle(.glassProminent)
                     .controlSize(.small)
+                    .disabled(code.isEmpty)
                     .keyboardShortcut(.defaultAction)
 
                 Button {

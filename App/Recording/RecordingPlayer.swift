@@ -54,6 +54,14 @@ final class RecordingPlayer: ObservableObject {
     @Published private(set) var searchMatches: [SearchMatch] = []
     @Published private(set) var selectedSearchMatchIndex: Int?
     @Published private(set) var isSearching = false
+    /// True when the source file is larger than `maxLoadedBytes` and playback
+    /// is capped to the first window.
+    @Published private(set) var isTruncated = false
+    /// Full on-disk size; `totalBytes` is the playable (possibly capped) length.
+    @Published private(set) var sourceByteCount = 0
+
+    /// Hard cap on bytes that ever enter the emulator / a single seek buffer.
+    static let maxLoadedBytes = 16 * 1024 * 1024
 
     /// The terminal the bytes are fed into. Owned by the view layer; a plain
     /// `TerminalView` with no `terminalDelegate` is inherently read-only, since
@@ -109,7 +117,7 @@ final class RecordingPlayer: ObservableObject {
         let capturedFileName = url.lastPathComponent
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let handle = try? FileHandle(forReadingFrom: url) else {
-                await MainActor.run { self?.resetToEmpty() }
+                await self?.resetToEmpty()
                 return
             }
             let end = (try? handle.seekToEnd()) ?? 0
@@ -121,7 +129,10 @@ final class RecordingPlayer: ObservableObject {
                 }
                 self.fileHandle = handle
                 self.fileURL = url
-                self.totalBytes = Int(end)
+                let full = Int(end)
+                self.sourceByteCount = full
+                self.isTruncated = full > Self.maxLoadedBytes
+                self.totalBytes = min(full, Self.maxLoadedBytes)
                 self.bytesFed = 0
                 self.progress = 0
                 self.fileName = capturedFileName
@@ -167,65 +178,55 @@ final class RecordingPlayer: ObservableObject {
     /// this resets the emulator and replays the byte stream from the start up
     /// to the target offset, then restores the prior transport state.
     ///
-    /// The byte-replay loop runs on a background thread via `Task.detached` so
-    /// it never blocks the main actor; the terminal feed and state updates are
-    /// dispatched back to the main actor when the background work finishes.
-    /// Recordings larger than this limit cannot be seeked: loading all bytes
-    /// up to the target offset into a single Data buffer would exhaust memory.
-    private static let seekMemoryLimitBytes = 100 * 1024 * 1024
-
+    /// Chunks are streamed into the emulator — never accumulated into one
+    /// Data/String — and the playable window is already capped at
+    /// `maxLoadedBytes`.
     func seek(toFraction fraction: Double) {
         guard hasRecording, totalBytes > 0, let handle = fileHandle else { return }
-        guard totalBytes <= Self.seekMemoryLimitBytes else { return }
         let wasPlaying = state == .playing
         stopTimer()
         seekGeneration += 1
         let seekGen = seekGeneration
 
         let clamped = min(max(fraction, 0), 1)
-        let target = Int((clamped * Double(totalBytes)).rounded())
+        let target = min(totalBytes, Int((clamped * Double(totalBytes)).rounded()))
         resetTerminal()
 
         // Capture URL so we can detect if load() replaces the file while
         // the background seek is in flight (REC-2: seek/load race condition).
         let seekURL = fileURL
 
-        Task { [weak self] in
-            // Collect all bytes up to `target` on a background thread.
-            let collected: Data = await Task.detached(priority: .userInitiated) {
-                try? handle.seek(toOffset: 0)
-                var result = Data()
-                result.reserveCapacity(target)
-                var remaining = target
-                let bufferSize = 64 * 1024
-                while remaining > 0 {
-                    let chunk = (try? handle.read(upToCount: min(bufferSize, remaining))) ?? Data()
-                    if chunk.isEmpty { break }
-                    result.append(chunk)
-                    remaining -= chunk.count
+        Task.detached(priority: .userInitiated) { [weak self] in
+            try? handle.seek(toOffset: 0)
+            var fed = 0
+            let bufferSize = 64 * 1024
+            while fed < target {
+                let chunk = (try? handle.read(upToCount: min(bufferSize, target - fed))) ?? Data()
+                if chunk.isEmpty { break }
+                let accepted = await MainActor.run { () -> Bool in
+                    guard let self, self.seekGeneration == seekGen, self.fileURL == seekURL else {
+                        return false
+                    }
+                    self.feed(chunk)
+                    return true
                 }
-                return result
-            }.value
+                if !accepted { return }
+                fed += chunk.count
+            }
 
-            guard let self else { return }
-
-            // Discard stale results if load() was called while we were seeking.
-            guard self.fileURL == seekURL else { return }
-            guard self.seekGeneration == seekGen else { return }
-
-            // Back on the main actor: feed the terminal and restore playback state.
-            self.feed(collected)
-            self.bytesFed = collected.count
-            try? handle.seek(toOffset: UInt64(collected.count))
-            self.progress = self.totalBytes > 0 ? Double(self.bytesFed) / Double(self.totalBytes) : 0
-
-            if self.bytesFed >= self.totalBytes {
-                self.state = .finished
-            } else if wasPlaying {
-                self.state = .playing
-                self.startTimer()
-            } else {
-                self.state = .paused
+            await MainActor.run { [weak self] in
+                guard let self, self.seekGeneration == seekGen, self.fileURL == seekURL else { return }
+                self.bytesFed = fed
+                try? handle.seek(toOffset: UInt64(fed))
+                self.progress = self.totalBytes > 0 ? Double(self.bytesFed) / Double(self.totalBytes) : 0
+                if self.bytesFed >= self.totalBytes {
+                    self.state = .finished
+                } else if wasPlaying {
+                    self.state = .playing
+                    self.startTimer()
+                } else {
+                    self.state = .paused
+                }
             }
         }
     }
@@ -357,7 +358,13 @@ final class RecordingPlayer: ObservableObject {
 
     fileprivate func tick(duration: TimeInterval) {
         guard state == .playing, let handle = fileHandle else { return }
-        let data = (try? handle.read(upToCount: bytesPerTick(frameDuration: duration))) ?? Data()
+        let remaining = max(0, totalBytes - bytesFed)
+        if remaining == 0 {
+            finish()
+            return
+        }
+        let want = min(remaining, bytesPerTick(frameDuration: duration))
+        let data = (try? handle.read(upToCount: want)) ?? Data()
         if data.isEmpty {
             finish()
             return
@@ -390,6 +397,8 @@ final class RecordingPlayer: ObservableObject {
         clearSearch()
         fileURL = nil
         totalBytes = 0
+        sourceByteCount = 0
+        isTruncated = false
         bytesFed = 0
         progress = 0
         fileName = ""

@@ -163,6 +163,22 @@ verify_app() {
     spctl --assess --type execute --verbose=4 "$app_path"
 }
 
+run_test_gate() {
+    echo "Running release test gate"
+    (
+        cd "$ROOT/HarborKit"
+        swift test
+    )
+    (
+        cd "$ROOT/HarborMCP"
+        swift test
+    )
+    (
+        cd "$ROOT/SwiftTerm-local"
+        env -u SWIFTTERM_INCLUDE_DEVELOPMENT_TARGETS swift test
+    )
+}
+
 set_dmg_finder_icon() {
     local dmg_path="$1"
     local icon_path="$2"
@@ -251,6 +267,7 @@ install_verified_app() {
 
 echo "Generating project from reviewed source revision: $SOURCE_REVISION"
 xcodegen generate
+run_test_gate
 xcodebuild \
     -quiet \
     -project Harbor.xcodeproj \

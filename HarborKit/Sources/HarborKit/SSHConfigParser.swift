@@ -13,6 +13,36 @@ import Foundation
 /// garbage lines are silently skipped. File IO lives in the app layer.
 public enum SSHConfigParser {
 
+    /// Reports directives that this lightweight importer cannot preserve. The
+    /// caller must not silently import such a configuration: resolving an SSH
+    /// alias to a bare hostname drops alias-scoped settings such as ProxyJump,
+    /// HostKeyAlias, and a dedicated known-hosts file.
+    ///
+    /// A plain config containing only concrete Host entries and the four
+    /// supported connection fields is safe to import. Any wildcard/negated
+    /// Host pattern or other directive requires OpenSSH itself to remain the
+    /// source of truth, so it is returned for a UI warning instead.
+    public static func unsupportedConnectionDirectives(in text: String) -> [String] {
+        let supported: Set<String> = ["host", "hostname", "user", "port", "identityfile"]
+        var unsupported = Set<String>()
+
+        for rawLine in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            guard let (key, value) = splitKeyValue(line) else { continue }
+
+            if key == "host" {
+                let aliases = tokenize(value)
+                if aliases.isEmpty || aliases.contains(where: { !isConcreteAlias($0) }) {
+                    unsupported.insert("Host pattern")
+                }
+            } else if !supported.contains(key) {
+                unsupported.insert(key)
+            }
+        }
+        return unsupported.sorted()
+    }
+
     public static func parse(
         _ text: String,
         homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path

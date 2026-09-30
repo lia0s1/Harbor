@@ -37,6 +37,16 @@ final class DirectoryTreeModel: ObservableObject {
     /// await a level that another caller already started rather than racing it.
     private var loadTasks: [String: Task<Void, Never>] = [:]
 
+    /// Drop every cached child list and cancel in-flight listings. Called
+    /// from `FileService.stop()` / a status flip so the tree cannot keep
+    /// growing after the session is gone.
+    func stop() {
+        for task in loadTasks.values { task.cancel() }
+        loadTasks.removeAll()
+        nodes.removeAll()
+        selectedPath = "/"
+    }
+
     func configure(service: FileService, includeHidden: Bool) {
         self.service = service
         if self.includeHidden != includeHidden {
@@ -114,7 +124,9 @@ final class DirectoryTreeModel: ObservableObject {
             var updated = self.nodes[key] ?? Node()
             updated.isLoading = false
             if let children {
-                updated.children = children
+                updated.children = children.count > FileService.maxDirectoryEntries
+                    ? Array(children.prefix(FileService.maxDirectoryEntries))
+                    : children
                 updated.failed = false
             } else {
                 updated.failed = true
@@ -242,8 +254,14 @@ struct DirectoryTreeView: View {
                     ForEach(flattenTree(model)) { row in
                         DirectoryTreeRow(
                             row: row,
-                            onTap: { service.navigate(toPath: row.path) },
-                            onToggle: { model.toggle(row.path) }
+                            onTap: {
+                                guard service.canInteract else { return }
+                                service.navigate(toPath: row.path)
+                            },
+                            onToggle: {
+                                guard service.canInteract else { return }
+                                model.toggle(row.path)
+                            }
                         )
                         .equatable()
                     }
@@ -269,6 +287,8 @@ struct DirectoryTreeView: View {
                 model.configure(service: service, includeHidden: includeHidden)
                 model.load("/", force: true)
                 model.reveal(service.cwd)
+            } else {
+                model.stop()
             }
         }
     }

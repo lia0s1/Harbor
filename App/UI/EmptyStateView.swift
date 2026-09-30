@@ -103,7 +103,7 @@ struct EmptyStateView: View {
 
                 ForEach(recentHosts) { host in
                     Button {
-                        sessionManager.openSession(host: host)
+                        PendingHostConnect.request(host.id)
                     } label: {
                         HStack(spacing: DS.Space.s) {
                             HostAvatarView(name: host.displayName, size: 22)

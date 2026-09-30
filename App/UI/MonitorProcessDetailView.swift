@@ -21,16 +21,31 @@ struct ProcessDetailView: View {
         var id: Int { process.pid }
     }
 
-    private var processes: [TopProcess] {
-        let list = monitor.snapshot?.topProcesses ?? []
-        switch sortKey {
-        case .cpu:
-            return list.sorted { sortAscending ? $0.cpuPercent < $1.cpuPercent : $0.cpuPercent > $1.cpuPercent }
-        case .memory:
-            return list.sorted { sortAscending ? $0.rssKB < $1.rssKB : $0.rssKB > $1.rssKB }
-        case .name:
-            return list.sorted { sortAscending ? $0.command < $1.command : $0.command > $1.command }
-        }
+    /// Live table from MonitorService — never stored locally.
+    private var processTable: [TopProcess] {
+        monitor.snapshot?.topProcesses ?? []
+    }
+
+    /// Sort keys only (pids). Row bodies read the live table so this view
+    /// does not keep a second full process snapshot.
+    private var sortedPIDs: [Int] {
+        let table = processTable
+        return table.indices.sorted { a, b in
+            let lhs = table[a]
+            let rhs = table[b]
+            switch sortKey {
+            case .cpu:
+                return sortAscending ? lhs.cpuPercent < rhs.cpuPercent : lhs.cpuPercent > rhs.cpuPercent
+            case .memory:
+                return sortAscending ? lhs.rssKB < rhs.rssKB : lhs.rssKB > rhs.rssKB
+            case .name:
+                return sortAscending ? lhs.command < rhs.command : lhs.command > rhs.command
+            }
+        }.map { table[$0].pid }
+    }
+
+    private func liveProcess(pid: Int) -> TopProcess? {
+        processTable.first { $0.pid == pid }
     }
 
     var body: some View {
@@ -66,10 +81,17 @@ struct ProcessDetailView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                     Spacer(minLength: 0)
+                    Button { monitor.lastActionError = nil } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("关闭"))
                 }
             }
 
-            if processes.isEmpty {
+            if processTable.isEmpty {
                 Text(L("暂无进程数据")).font(.caption).foregroundStyle(.tertiary)
             } else {
                 Grid(alignment: .leading, horizontalSpacing: DS.Space.s + 1, verticalSpacing: 5) {
@@ -84,7 +106,8 @@ struct ProcessDetailView: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.tertiary)
                     Divider()
-                    ForEach(processes, id: \.pid) { proc in
+                    ForEach(sortedPIDs, id: \.self) { pid in
+                        if let proc = liveProcess(pid: pid) {
                         GridRow {
                             Text(proc.pid > 0 ? "\(proc.pid)" : "—")
                                 .foregroundStyle(.secondary)
@@ -110,6 +133,7 @@ struct ProcessDetailView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { if proc.pid > 0 { inspected = InspectedProcess(process: proc) } }
                         .contextMenu { killMenu(for: proc) }
+                        }
                     }
                 }
             }
@@ -124,8 +148,11 @@ struct ProcessDetailView: View {
             presenting: pendingKill
         ) { target in
             Button(target.signal == .kill ? L("强制结束") : L("结束进程"), role: .destructive) {
-                Task { await monitor.terminate(pid: Int32(target.process.pid), signal: target.signal) }
+                let pid = target.process.pid
+                guard liveProcess(pid: pid) != nil, !monitor.isTerminating(pid) else { return }
+                Task { await monitor.terminate(pid: Int32(pid), signal: target.signal) }
             }
+            .disabled(monitor.isTerminating(target.process.pid) || liveProcess(pid: target.process.pid) == nil)
             Button(L("取消"), role: .cancel) {}
         }
         .popover(item: $inspected) { item in
@@ -138,10 +165,13 @@ struct ProcessDetailView: View {
     @ViewBuilder
     private func killMenu(for proc: TopProcess) -> some View {
         if proc.pid > 0 {
+            let busy = monitor.isTerminating(proc.pid)
             Button(L("结束进程")) { pendingKill = ProcessKillTarget(process: proc, signal: .term) }
+                .disabled(busy)
             Button(L("强制结束"), role: .destructive) {
                 pendingKill = ProcessKillTarget(process: proc, signal: .kill)
             }
+            .disabled(busy)
         }
     }
 
@@ -153,12 +183,17 @@ struct ProcessDetailView: View {
             Button {
                 pendingKill = ProcessKillTarget(process: proc, signal: .term)
             } label: {
-                Image(systemName: "stop.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(DS.Colors.statusError)
+                if monitor.isTerminating(proc.pid) {
+                    ProgressView().scaleEffect(0.5)
+                } else {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(DS.Colors.statusError)
+                }
             }
             .buttonStyle(.plain)
             .help(L("结束进程"))
+            .disabled(monitor.isTerminating(proc.pid))
         } else {
             Color.clear.frame(width: 12, height: 12)
         }

@@ -3,6 +3,57 @@ import AppKit
 import UniformTypeIdentifiers
 import HarborKit
 
+/// A `Table` sort comparator that keeps only Sendable values in SwiftUI state.
+/// `KeyPathComparator` would otherwise store a non-Sendable Swift key path,
+/// which becomes an error under Swift 6 strict concurrency.
+private struct RemoteFileEntrySortComparator: SortComparator {
+    enum Field: Hashable, Sendable {
+        case name
+        case size
+        case modificationTime
+    }
+
+    var field: Field
+    var order: SortOrder = .forward
+
+    init(_ field: Field, order: SortOrder = .forward) {
+        self.field = field
+        self.order = order
+    }
+
+    func compare(_ lhs: RemoteFileEntry, _ rhs: RemoteFileEntry) -> ComparisonResult {
+        switch field {
+        case .name:
+            // Finder semantics: localized, case-insensitive, digit-aware — and
+            // directories always group first, even when the order is reversed.
+            if lhs.isDirectory != rhs.isDirectory {
+                return lhs.isDirectory ? .orderedAscending : .orderedDescending
+            }
+            let result = lhs.name.localizedStandardCompare(rhs.name)
+            return order == .reverse ? Self.flip(result) : result
+        case .size:
+            let result = Self.ordered(lhs.sizeBytes, rhs.sizeBytes)
+            return order == .reverse ? Self.flip(result) : result
+        case .modificationTime:
+            let result = Self.ordered(lhs.mtimeEpoch, rhs.mtimeEpoch)
+            return order == .reverse ? Self.flip(result) : result
+        }
+    }
+
+    private static func ordered<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+        lhs == rhs ? .orderedSame : (lhs < rhs ? .orderedAscending : .orderedDescending)
+    }
+
+    private static func flip(_ result: ComparisonResult) -> ComparisonResult {
+        switch result {
+        case .orderedAscending: return .orderedDescending
+        case .orderedDescending: return .orderedAscending
+        case .orderedSame: return .orderedSame
+        @unknown default: return result
+        }
+    }
+}
+
 // MARK: - Visibility / height preferences
 
 /// Shared storage for the file panel: the toolbar button, the ⌘J menu toggle
@@ -106,13 +157,20 @@ struct DualPaneFileView: View {
 
     // MARK: Transfers popover (shared)
 
+    private var hasFailedTransfers: Bool {
+        service.transfers.contains { transfer in
+            if case .failed = transfer.state { return true }
+            return false
+        }
+    }
+
     private var transfersButton: some View {
         Button {
             transfersPresented.toggle()
         } label: {
             Image(systemName: service.hasRunningTransfers ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down")
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(service.hasRunningTransfers ? AnyShapeStyle(SwiftUI.Color.accentColor) : AnyShapeStyle(.secondary))
+                .foregroundStyle(transferIconStyle)
                 .frame(width: 30, height: 26)
                 .overlay(alignment: .topTrailing) {
                     if !service.transfers.isEmpty {
@@ -121,17 +179,23 @@ struct DualPaneFileView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 3)
                             .padding(.vertical, 0.5)
-                            .background(Capsule().fill(SwiftUI.Color.accentColor))
+                            .background(Capsule().fill(hasFailedTransfers ? DS.Colors.statusError : SwiftUI.Color.accentColor))
                             .offset(x: 5, y: -2)
                     }
                 }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(L("传输列表"))
+        .help(hasFailedTransfers ? L("有传输失败，点击查看") : L("传输列表"))
         .popover(isPresented: $transfersPresented, arrowEdge: .bottom) {
             TransfersPopoverView(service: service)
         }
+    }
+
+    private var transferIconStyle: AnyShapeStyle {
+        if hasFailedTransfers { return AnyShapeStyle(DS.Colors.statusError) }
+        if service.hasRunningTransfers { return AnyShapeStyle(SwiftUI.Color.accentColor) }
+        return AnyShapeStyle(.secondary)
     }
 
     // MARK: States
@@ -219,7 +283,7 @@ struct RemoteFilePane: View {
 
     @State private var selection = Set<RemoteFileEntry.ID>()
     @State private var pathText = ""
-    @State private var sortOrder: [KeyPathComparator<RemoteFileEntry>] = [KeyPathComparator(\.name)]
+    @State private var sortOrder: [RemoteFileEntrySortComparator] = [.init(.name)]
     @State private var inlineRenamingID: RemoteFileEntry.ID? = nil
     @State private var inlineRenameText = ""
     @FocusState private var renameFocused: Bool
@@ -232,14 +296,117 @@ struct RemoteFilePane: View {
     /// Archive awaiting an "解压到…" target path, plus the editable destination.
     @State private var extractTarget: RemoteFileEntry?
     @State private var extractDestText = ""
+    /// Entry awaiting a "移动到…" destination path, plus the editable target.
+    @State private var moveTarget: RemoteFileEntry?
+    @State private var moveDestText = ""
     @State private var isDropTargeted = false
     @State private var sessionState: TerminalSession.State = .connecting
+    /// Name filter (⌘F), applied case-insensitively to visible entry names.
+    @State private var filterText = ""
+    @State private var filterVisible = false
+    @FocusState private var filterFocused: Bool
+    /// Brief transient hint when an action is dropped (e.g. panel not ready).
+    @State private var actionHint: String?
+    @State private var actionHintTask: Task<Void, Never>?
 
     private var isReady: Bool {
         service.status == .ready && sessionState == .running
     }
 
+    private var canInteract: Bool {
+        isReady
+    }
+
+    private var canMutate: Bool {
+        isReady && !service.isMutating
+    }
+
     var body: some View {
+        paneContent
+            .onAppear(perform: handleAppear)
+            .onReceive(session.$state) { sessionState = $0 }
+            .onChange(of: service.cwd, handleCwdChange)
+            .onChange(of: service.status, handleStatusChange)
+            .onChange(of: service.entries, handleEntriesChange)
+            .alert(L("新建文件夹"), isPresented: $newFolderPresented) {
+                TextField(L("文件夹名称"), text: $newFolderName)
+                Button(L("创建"), action: createFolder)
+                    .disabled(!canMutate)
+                Button(L("取消"), role: .cancel) {}
+            } message: {
+                Text(verbatim: L("在 %@ 中创建新文件夹。", service.cwd))
+            }
+            .alert(L("解压到…"), isPresented: extractPresented) {
+                TextField(L("目标目录"), text: $extractDestText)
+                Button(L("解压"), action: confirmExtract)
+                    .disabled(!canMutate)
+                Button(L("取消"), role: .cancel) { extractTarget = nil }
+            } message: {
+                Text(verbatim: L("把 \u{201C}%@\u{201D} 解压到哪个目录?(支持 ~ 和相对路径)", extractTarget?.name ?? ""))
+            }
+            .alert(L("移动到…"), isPresented: movePresented) {
+                TextField(L("目标路径"), text: $moveDestText)
+                Button(L("移动"), action: confirmMove)
+                    .disabled(!canMutate || moveDestText.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button(L("取消"), role: .cancel) { moveTarget = nil }
+            } message: {
+                Text(verbatim: L("把 \u{201C}%@\u{201D} 移动到哪个路径？(支持 ~ 和相对路径)", moveTarget?.name ?? ""))
+            }
+            .alert(deleteTitle, isPresented: $deleteConfirmPresented) {
+                Button(L("删除"), role: .destructive, action: confirmDelete)
+                    .disabled(!canMutate)
+                Button(L("取消"), role: .cancel) { deleteTargets = [] }
+            } message: {
+                Text(verbatim: L("此操作无法撤销，将删除：\n%@", deletePathsPreview))
+            }
+            .confirmationDialog(
+                uploadConflictTitle,
+                isPresented: uploadConflictPresented,
+                titleVisibility: .visible,
+                actions: { uploadConflictActions },
+                message: { uploadConflictMessage }
+            )
+            .sheet(item: $permissionsTarget, content: permissionsSheet)
+            .sheet(item: $editingFile, content: editorSheet)
+            .sheet(item: directorySyncBinding, content: directorySyncSheet)
+    }
+
+    @ViewBuilder
+    private var uploadConflictActions: some View {
+        Button(L("覆盖"), role: .destructive) { service.confirmOverwriteUpload() }
+        Button(L("跳过冲突项")) { service.confirmSkipConflictsUpload() }
+        Button(L("取消"), role: .cancel) { service.cancelPendingUpload() }
+    }
+
+    private var uploadConflictMessage: some View {
+        Text(verbatim: L("以下文件已存在于远程目录，将如何处理？\n%@", uploadConflictPreview))
+    }
+
+    private var movePresented: Binding<Bool> {
+        Binding(get: { moveTarget != nil }, set: { if !$0 { moveTarget = nil } })
+    }
+
+    private var uploadConflictPresented: Binding<Bool> {
+        Binding(
+            get: { !service.pendingUploadConflicts.isEmpty },
+            set: { if !$0 { service.cancelPendingUpload() } }
+        )
+    }
+
+    private var uploadConflictTitle: String {
+        let count = service.pendingUploadConflicts.count
+        return count == 1
+            ? L("覆盖 \u{201C}%@\u{201D}？", service.pendingUploadConflicts[0])
+            : L("%lld 个同名文件已存在", count)
+    }
+
+    private var uploadConflictPreview: String {
+        let names = service.pendingUploadConflicts
+        if names.count <= 8 { return names.joined(separator: "\n") }
+        return names.prefix(8).joined(separator: "\n") + L("\n…等 %lld 项", names.count)
+    }
+
+    private var paneContent: some View {
         VStack(spacing: 0) {
             RemoteFilePaneHeader(
                 service: service,
@@ -255,74 +422,111 @@ struct RemoteFilePane: View {
             Divider()
             remoteBody
         }
-        .onAppear {
-            pathText = service.cwd
-            sessionState = session.state
+    }
+
+    private var extractPresented: Binding<Bool> {
+        Binding(get: { extractTarget != nil }, set: { if !$0 { extractTarget = nil } })
+    }
+
+    private var directorySyncBinding: Binding<DirectorySyncPreview?> {
+        Binding(
+            get: { service.directorySyncPreview },
+            set: { if $0 == nil { service.dismissDirectorySyncPreview() } }
+        )
+    }
+
+    private func handleAppear() {
+        pathText = service.cwd
+        sessionState = session.state
+    }
+
+    private func handleCwdChange(_ oldValue: String, _ newValue: String) {
+        pathText = newValue
+        selection.removeAll()
+        // A parked upload conflict was confirmed against the OLD directory;
+        // never carry it into a different cwd.
+        service.cancelPendingUpload()
+    }
+
+    private func handleStatusChange(_ oldValue: FileService.Status, _ status: FileService.Status) {
+                if status != .ready {
+            editingFile = nil
+            permissionsTarget = nil
+            extractTarget = nil
+            moveTarget = nil
+            newFolderPresented = false
+            deleteConfirmPresented = false
+            inlineRenamingID = nil
+            treeModel.stop()
         }
-        .onReceive(session.$state) { sessionState = $0 }
-        .onChange(of: service.cwd) { _, newValue in
-            pathText = newValue
-            selection.removeAll()
+    }
+
+    private func handleEntriesChange(_ oldValue: [RemoteFileEntry], _ newEntries: [RemoteFileEntry]) {
+        let live = Set(newEntries.map(\.id))
+        selection.formIntersection(live)
+    }
+
+    private func createFolder() {
+        guard canMutate else { return }
+        service.createDirectory(named: newFolderName)
+    }
+
+    private func confirmExtract() {
+        guard canMutate, let target = extractTarget else {
+            extractTarget = nil
+            return
         }
-        .onChange(of: service.entries) { _, newEntries in
-            // Prune stale IDs after rename/mkdir/permissions/extract so selection
-            // never points to a file that no longer exists under its old name.
-            let live = Set(newEntries.map(\.id))
-            selection.formIntersection(live)
+        service.extract(target, to: extractDestText)
+        extractTarget = nil
+    }
+
+    private func confirmMove() {
+        guard canMutate, let target = moveTarget else {
+            moveTarget = nil
+            return
         }
-        .alert(L("新建文件夹"), isPresented: $newFolderPresented) {
-            TextField(L("文件夹名称"), text: $newFolderName)
-            Button(L("创建")) { service.createDirectory(named: newFolderName) }
-            Button(L("取消"), role: .cancel) {}
-        } message: {
-            Text(verbatim: L("在 %@ 中创建新文件夹。", service.cwd))
+        service.move(target, to: moveDestText)
+        moveTarget = nil
+    }
+
+    private func confirmDelete() {
+        guard canMutate else { return }
+        service.delete(deleteTargets)
+        deleteTargets = []
+        selection.removeAll()
+    }
+
+    private func showHint(_ text: String) {
+        actionHint = text
+        actionHintTask?.cancel()
+        actionHintTask = Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            actionHint = nil
         }
-        .alert(L("解压到…"), isPresented: Binding(
-            get: { extractTarget != nil },
-            set: { if !$0 { extractTarget = nil } }
-        )) {
-            TextField(L("目标目录"), text: $extractDestText)
-            Button(L("解压")) {
-                if let target = extractTarget {
-                    service.extract(target, to: extractDestText)
-                }
-                extractTarget = nil
-            }
-            Button(L("取消"), role: .cancel) { extractTarget = nil }
-        } message: {
-            Text(verbatim: L("把 \u{201C}%@\u{201D} 解压到哪个目录?(支持 ~ 和相对路径)", extractTarget?.name ?? ""))
-        }
-        .alert(deleteTitle, isPresented: $deleteConfirmPresented) {
-            Button(L("删除"), role: .destructive) {
-                service.delete(deleteTargets)
-                deleteTargets = []
-                selection.removeAll()
-            }
-            Button(L("取消"), role: .cancel) { deleteTargets = [] }
-        } message: {
-            Text(verbatim: L("此操作无法撤销，将删除：\n%@", deletePathsPreview))
-        }
-        .sheet(item: $permissionsTarget) { entry in
+    }
+
+    @ViewBuilder
+    private func permissionsSheet(_ entry: RemoteFileEntry) -> some View {
+        if !entry.isSymlink {
             PermissionsSheet(entry: entry, onApply: { octal in
                 service.changePermissions(entry, octal: octal)
             }, onChown: { owner, group in
                 service.changeOwner(entry, owner: owner, group: group)
             })
         }
-        .sheet(item: $editingFile) { entry in
-            FileEditorView(entry: entry, service: service)
-        }
-        .sheet(item: Binding(
-            get: { service.directorySyncPreview },
-            set: { if $0 == nil { service.dismissDirectorySyncPreview() } }
-        )) { preview in
-            DirectorySyncPreviewSheet(preview: preview) {
-                service.applyDirectorySyncPreview()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .harborUploadLocalFiles)) { notification in
-            guard isReady, let urls = notification.object as? [URL] else { return }
-            service.upload(urls: urls)
+    }
+
+    private func editorSheet(_ entry: RemoteFileEntry) -> some View {
+        FileEditorView(entry: entry, service: service)
+    }
+
+    private func directorySyncSheet(_ preview: DirectorySyncPreview) -> some View {
+        DirectorySyncPreviewSheet(
+            preview: preview,
+            isApplyEnabled: canInteract
+        ) {
+            service.applyDirectorySyncPreview()
         }
     }
 
@@ -333,6 +537,20 @@ struct RemoteFilePane: View {
         VStack(spacing: 0) {
             if let message = service.errorMessage {
                 errorBanner(message)
+            }
+            if service.listingTruncated {
+                HStack(spacing: DS.Space.s) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(DS.Colors.statusConnecting)
+                    Text(L("目录条目过多，仅显示前 %lld 项。", FileService.maxDirectoryEntries))
+                        .font(.caption)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, DS.Space.m)
+                .padding(.vertical, 4)
+                .background(DS.Colors.statusConnecting.opacity(0.12))
             }
             if service.isComparingDirectory {
                 HStack(spacing: DS.Space.s) {
@@ -346,6 +564,47 @@ struct RemoteFilePane: View {
                 .padding(.vertical, 4)
                 .background(DS.Colors.separator.opacity(0.35))
             }
+            if service.isMutating {
+                HStack(spacing: DS.Space.s) {
+                    ProgressView().controlSize(.small)
+                    Text(L("正在执行文件操作…"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(L("取消")) { service.cancelMutation() }
+                        .controlSize(.mini)
+                        .buttonStyle(.glass)
+                }
+                .padding(.horizontal, DS.Space.m)
+                .padding(.vertical, 4)
+                .background(DS.Colors.separator.opacity(0.35))
+            }
+            if filterVisible {
+                HStack(spacing: DS.Space.xs) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    TextField(L("筛选文件名"), text: $filterText)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+                        .focused($filterFocused)
+                        .onSubmit { filterFocused = true }
+                    if !filterText.isEmpty {
+                        Button {
+                            filterText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(L("清除筛选"))
+                    }
+                }
+                .padding(.horizontal, DS.Space.m)
+                .padding(.vertical, 4)
+                .background(DS.Colors.separator.opacity(0.25))
+            }
             if treeVisible {
                 HStack(spacing: 0) {
                     treePane
@@ -355,6 +614,26 @@ struct RemoteFilePane: View {
             } else {
                 remoteTable
             }
+        }
+        .overlay(alignment: .bottom) {
+            if let hint = actionHint {
+                Text(hint)
+                    .font(.caption)
+                    .padding(.horizontal, DS.Space.m)
+                    .padding(.vertical, 6)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(DS.Colors.separator, lineWidth: 1))
+                    .padding(.bottom, 10)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: actionHint)
+        .background {
+            // ⌘F reveals and focuses the name-filter field.
+            Button("") { filterVisible = true; filterFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+                .accessibilityHidden(true)
         }
     }
 
@@ -404,6 +683,7 @@ struct RemoteFilePane: View {
             Button(L("重试")) { service.retry() }
                 .buttonStyle(.glass)
                 .controlSize(.mini)
+                .disabled(!canInteract)
             Button {
                 service.errorMessage = nil
             } label: {
@@ -419,7 +699,12 @@ struct RemoteFilePane: View {
     }
 
     private var visibleEntries: [RemoteFileEntry] {
-        let filtered = showHidden ? service.entries : service.entries.filter { !$0.isHidden }
+        var filtered = showHidden ? service.entries : service.entries.filter { !$0.isHidden }
+        if !filterText.isEmpty {
+            filtered = filtered.filter {
+                $0.name.localizedCaseInsensitiveContains(filterText)
+            }
+        }
         return filtered.sorted(using: sortOrder)
     }
 
@@ -433,14 +718,12 @@ struct RemoteFilePane: View {
 
     private var remoteTable: some View {
         Table(of: RemoteFileEntry.self, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn(L("名称"), value: \.name) { entry in
+            TableColumn(L("名称"), sortUsing: RemoteFileEntrySortComparator(.name)) { entry in
                 if entry.id == inlineRenamingID {
                     TextField("", text: $inlineRenameText)
                         .focused($renameFocused)
-                        .onSubmit {
-                            service.rename(entry, to: inlineRenameText)
-                            inlineRenamingID = nil
-                        }
+                        .onSubmit { commitInlineRename() }
+                        .disabled(!canMutate)
                         .onKeyPress(.escape) {
                             inlineRenamingID = nil
                             return .handled
@@ -464,7 +747,7 @@ struct RemoteFilePane: View {
             }
             .width(min: 130, ideal: 220)
 
-            TableColumn(L("大小"), value: \.sizeBytes) { entry in
+            TableColumn(L("大小"), sortUsing: RemoteFileEntrySortComparator(.size)) { entry in
                 Text(DualPaneFileView.sizeText(entry.sizeBytes, isDirectory: entry.isDirectory))
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -472,7 +755,7 @@ struct RemoteFilePane: View {
             }
             .width(min: 50, ideal: 60, max: 80)
 
-            TableColumn(L("修改时间"), value: \.mtimeEpoch) { entry in
+            TableColumn(L("修改时间"), sortUsing: RemoteFileEntrySortComparator(.modificationTime)) { entry in
                 Text(DualPaneFileView.dateText(entry.mtimeEpoch))
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -521,12 +804,40 @@ struct RemoteFilePane: View {
             beginRename(entry)
             return .handled
         }
+        .onKeyPress(.delete) {
+            beginDeleteFromKeyboard()
+        }
+        .onKeyPress(KeyEquivalent(Character(UnicodeScalar(0xF739) ?? "?"))) {
+            beginDeleteFromKeyboard()
+        }
         .onChange(of: inlineRenamingID) { _, newID in
             if newID != nil { renameFocused = true }
         }
         .onChange(of: renameFocused) { _, focused in
-            if !focused { inlineRenamingID = nil }
+            // Finder semantics: blurring the inline rename field COMMITS the
+            // edit (unless it was dismissed with Escape, which clears the id).
+            if !focused { commitInlineRename() }
         }
+    }
+
+    /// Delete/Forward-Delete key: same confirm-delete flow as the context menu.
+    private func beginDeleteFromKeyboard() -> KeyPress.Result {
+        guard canMutate, inlineRenamingID == nil, !selection.isEmpty else { return .ignored }
+        deleteTargets = selectedEntries
+        guard !deleteTargets.isEmpty else { return .ignored }
+        deleteConfirmPresented = true
+        return .handled
+    }
+
+    /// Commits the in-place rename on blur / submit; Escape bypasses this by
+    /// clearing `inlineRenamingID` first.
+    private func commitInlineRename() {
+        guard let id = inlineRenamingID else { return }
+        inlineRenamingID = nil
+        guard let entry = service.entries.first(where: { $0.id == id }) else { return }
+        let trimmed = inlineRenameText.trimmingCharacters(in: .whitespaces)
+        guard canMutate, !trimmed.isEmpty, trimmed != entry.name else { return }
+        service.rename(entry, to: trimmed)
     }
 
     @ViewBuilder
@@ -547,24 +858,33 @@ struct RemoteFilePane: View {
     @ViewBuilder
     private func tableContextMenu(_ ids: Set<RemoteFileEntry.ID>) -> some View {
         let items = entries(for: ids)
+        let locked = !canInteract
+        let mutationLocked = !canMutate
         if !items.isEmpty {
             Button(items.count == 1 ? L("下载") : L("下载 %lld 项", items.count)) {
                 service.download(items)
             }
+            .disabled(locked)
+            Button(L("下载到…")) { chooseDownloadDestination(items) }
+                .disabled(locked)
             // One-click extract for an uploaded archive (zip / 7z / rar / tar.* …).
             if items.count == 1, service.canExtract(items[0]) {
                 Button(L("解压到当前目录")) { service.extract(items[0]) }
+                    .disabled(mutationLocked)
                 Button(L("解压到…")) {
                     extractDestText = service.cwd
                     extractTarget = items[0]
                 }
+                .disabled(mutationLocked)
             }
             if items.count == 1 {
                 if !items[0].isDirectory {
                     if items[0].sizeBytes <= FileService.maxInAppEditBytes {
-                        Button("编辑") { editingFile = items[0] }
+                        Button(L("编辑")) { editingFile = items[0] }
+                            .disabled(locked)
                     }
-                    Button("用外部编辑器打开") { editEntry(items[0]) }
+                    Button(L("用外部编辑器打开")) { editEntry(items[0]) }
+                        .disabled(locked)
                 }
                 Button(L("在终端中打开")) {
                     let entry = items[0]
@@ -573,31 +893,44 @@ struct RemoteFilePane: View {
                         : service.cwd
                     session.sendText("cd \(sq(dir))\r")
                 }
-                Button("重命名…") { beginRename(items[0]) }
-                Button("权限…") { permissionsTarget = items[0] }
+                .disabled(!isReady)
+                Button(L("重命名…")) { beginRename(items[0]) }
+                    .disabled(mutationLocked)
+                Button(L("移动到…")) {
+                    moveDestText = service.cwd
+                    moveTarget = items[0]
+                }
+                .disabled(mutationLocked)
+                if !items[0].isSymlink {
+                    Button(L("权限…")) { permissionsTarget = items[0] }
+                        .disabled(mutationLocked)
+                }
             }
-            Button("复制路径") { copyPaths(items) }
+            Button(L("复制路径")) { copyPaths(items) }
         }
-        Button("新建文件夹…") { beginNewFolder() }
+        Button(L("新建文件夹…")) { beginNewFolder() }
+            .disabled(mutationLocked)
         Divider()
         Button(service.isComparingDirectory ? L("正在对比本地目录…") : L("与本地目录对比…")) {
             chooseSyncDirectory()
         }
-        .disabled(!isReady || service.isComparingDirectory)
-        Button("刷新") { service.refresh() }
+        .disabled(locked || service.isComparingDirectory)
+        Button(L("刷新")) { service.refresh() }
+            .disabled(locked)
         if !items.isEmpty {
             Divider()
-            Button("删除…", role: .destructive) {
+            Button(L("删除…"), role: .destructive) {
                 deleteTargets = items
                 deleteConfirmPresented = true
             }
+            .disabled(mutationLocked)
         }
     }
 
     /// Double click: enter directories (symlinks try to enter; a symlink to
     /// a file surfaces the error banner), download plain files.
     private func handlePrimaryAction(_ ids: Set<RemoteFileEntry.ID>) {
-        guard ids.count == 1, let entry = entries(for: ids).first else { return }
+        guard canInteract, ids.count == 1, let entry = entries(for: ids).first else { return }
         if entry.isDirectory || entry.isSymlink {
             service.open(entry)
         } else {
@@ -606,16 +939,18 @@ struct RemoteFilePane: View {
     }
 
     private func beginRename(_ entry: RemoteFileEntry) {
+        guard canMutate else { return }
         inlineRenameText = entry.name
         inlineRenamingID = entry.id
     }
 
     private func editEntry(_ entry: RemoteFileEntry) {
-        guard !entry.isDirectory else { return }
+        guard canInteract, !entry.isDirectory else { return }
         service.beginEdit(entry)
     }
 
     private func beginNewFolder() {
+        guard canMutate else { return }
         newFolderName = ""
         newFolderPresented = true
     }
@@ -629,6 +964,10 @@ struct RemoteFilePane: View {
     // MARK: Upload (open panel + drop)
 
     private func chooseUploadFiles() {
+        guard canInteract else {
+            showHint(L("会话未就绪，暂时无法上传。"))
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -638,11 +977,35 @@ struct RemoteFilePane: View {
         let service = self.service
         panel.begin { response in
             guard response == .OK else { return }
+            guard service.canInteract else { return }
             service.upload(urls: panel.urls)
         }
     }
 
+    private func chooseDownloadDestination(_ items: [RemoteFileEntry]) {
+        guard canInteract, !items.isEmpty else {
+            showHint(L("会话未就绪，暂时无法下载。"))
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = L("下载")
+        panel.message = L("选择保存位置")
+        let service = self.service
+        panel.begin { response in
+            guard response == .OK, let url = panel.url, service.canInteract else { return }
+            service.download(into: url, items: items)
+        }
+    }
+
     private func chooseSyncDirectory() {
+        guard canInteract else {
+            showHint(L("会话未就绪，暂时无法对比。"))
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -651,13 +1014,16 @@ struct RemoteFilePane: View {
         panel.message = L("选择要与 %@ 对比的本地目录", service.cwd)
         let service = self.service
         panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
+            guard response == .OK, let url = panel.url, service.canInteract else { return }
             service.compareDirectory(url)
         }
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard isReady else { return false }
+        guard canInteract else {
+            showHint(L("会话未就绪，暂时无法上传。"))
+            return false
+        }
         let service = self.service
         var accepted = false
         for provider in providers
@@ -672,6 +1038,10 @@ struct RemoteFilePane: View {
                 }
                 guard let url, url.isFileURL else { return }
                 Task { @MainActor in
+                    guard service.canInteract else {
+                        self.showHint(L("会话未就绪，暂时无法上传。"))
+                        return
+                    }
                     service.upload(urls: [url])
                 }
             }
@@ -695,14 +1065,6 @@ struct RemoteFilePane: View {
     }
 }
 
-// MARK: - Notification names for inter-pane communication
-
-extension Notification.Name {
-    /// Posted by LocalFilePane when the user chooses "上传到服务器". The object
-    /// is an array of file:// `URL`s. Handled by RemoteFilePane.
-    static let harborUploadLocalFiles = Notification.Name("harborUploadLocalFiles")
-}
-
 // MARK: - Permissions editor
 
 /// chmod editor: owner/group/other × read/write/execute toggles initialized
@@ -713,7 +1075,13 @@ private struct PermissionsSheet: View {
     var onChown: ((String, String) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
+    private let initialMode: POSIXPermissionMode
+    private let initialOwnerText: String
+    private let initialGroupText: String
     @State private var bits: [Bool]
+    @State private var setUserID: Bool
+    @State private var setGroupID: Bool
+    @State private var sticky: Bool
     @State private var ownerText: String
     @State private var groupText: String
 
@@ -721,17 +1089,58 @@ private struct PermissionsSheet: View {
         self.entry = entry
         self.onApply = onApply
         self.onChown = onChown
-        _bits = State(initialValue: PermissionsSheet.parse(entry.permissions))
-        _ownerText = State(initialValue: String(entry.uid))
-        _groupText = State(initialValue: String(entry.gid))
+        let mode = POSIXPermissionMode(lsPermissions: entry.permissions)
+        let owner = String(entry.uid)
+        let group = String(entry.gid)
+        self.initialMode = mode
+        self.initialOwnerText = owner
+        self.initialGroupText = group
+        _bits = State(initialValue: mode.rwx)
+        _setUserID = State(initialValue: mode.setUserID)
+        _setGroupID = State(initialValue: mode.setGroupID)
+        _sticky = State(initialValue: mode.sticky)
+        _ownerText = State(initialValue: owner)
+        _groupText = State(initialValue: group)
     }
 
-    /// 9 rwx bits → "ugo" octal string, e.g. "755".
+    private var mode: POSIXPermissionMode {
+        POSIXPermissionMode(
+            rwx: bits,
+            setUserID: setUserID,
+            setGroupID: setGroupID,
+            sticky: sticky
+        )
+    }
+
+    /// Four-digit octal mode, e.g. "0755" or "4755".
     private var octal: String {
-        func digit(_ row: Int) -> Int {
-            (bits[row * 3] ? 4 : 0) + (bits[row * 3 + 1] ? 2 : 0) + (bits[row * 3 + 2] ? 1 : 0)
-        }
-        return "\(digit(0))\(digit(1))\(digit(2))"
+        mode.octal
+    }
+
+    private var permissionsChanged: Bool {
+        mode != initialMode
+    }
+
+    private var trimmedOwnerText: String {
+        ownerText.trimmingCharacters(in: .whitespaces)
+    }
+
+    private var trimmedGroupText: String {
+        groupText.trimmingCharacters(in: .whitespaces)
+    }
+
+    private var ownershipChanged: Bool {
+        trimmedOwnerText != initialOwnerText || trimmedGroupText != initialGroupText
+    }
+
+    private var hasValidOwnership: Bool {
+        !trimmedOwnerText.isEmpty && !trimmedGroupText.isEmpty
+    }
+
+    /// Do not turn an unchanged sheet into a remote `chmod`/`chown`. A
+    /// partially cleared owner/group is also not a valid change to submit.
+    private var isDirty: Bool {
+        permissionsChanged || (ownershipChanged && hasValidOwnership)
     }
 
     var body: some View {
@@ -750,6 +1159,16 @@ private struct PermissionsSheet: View {
                 permRow(L("所有者"), 0)
                 permRow(L("组"), 1)
                 permRow(L("其他"), 2)
+            }
+
+            VStack(alignment: .leading, spacing: DS.Space.xs) {
+                Text(L("特殊位")).font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: DS.Space.m) {
+                    Toggle("setuid", isOn: $setUserID)
+                    Toggle("setgid", isOn: $setGroupID)
+                    Toggle("sticky", isOn: $sticky)
+                }
+                .toggleStyle(.checkbox)
             }
 
             HStack(spacing: DS.Space.s) {
@@ -776,15 +1195,20 @@ private struct PermissionsSheet: View {
                 Button(L("取消"), role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(L("应用")) {
-                    onApply(octal)
-                    if (ownerText != String(entry.uid) || groupText != String(entry.gid)),
-                       !ownerText.isEmpty, !groupText.isEmpty {
-                        onChown?(ownerText, groupText)
+                    if permissionsChanged {
+                        onApply(octal)
+                    }
+                    if ownershipChanged, hasValidOwnership {
+                        onChown?(
+                            trimmedOwnerText,
+                            trimmedGroupText
+                        )
                     }
                     dismiss()
                 }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
+                    .disabled(!isDirty)
             }
         }
         .padding(DS.Space.l)
@@ -798,16 +1222,6 @@ private struct PermissionsSheet: View {
             Toggle("", isOn: $bits[row * 3 + 1]).labelsHidden()
             Toggle("", isOn: $bits[row * 3 + 2]).labelsHidden()
         }
-    }
-
-    /// Parses the 9 rwx flags from an `ls -l` string like "-rwxr-xr-x"; any
-    /// non-"-" character (incl. s/t special bits) counts as the bit set.
-    static func parse(_ permissions: String) -> [Bool] {
-        let chars = Array(permissions)
-        var bits = [Bool](repeating: false, count: 9)
-        guard chars.count >= 10 else { return bits }
-        for i in 0..<9 { bits[i] = chars[i + 1] != "-" }
-        return bits
     }
 }
 

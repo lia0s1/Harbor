@@ -21,17 +21,15 @@ enum JSONStorePersistence {
         qos: .utility
     )
 
-    fileprivate static func enqueue<Element: Sendable>(
-        items: [Element],
+    fileprivate static func enqueue(
+        data: Data,
         fileURL: URL,
         fileManager: SerializedFileManager,
-        encode: @escaping @Sendable ([Element]) throws -> Data,
         completion: @escaping @MainActor @Sendable (String?) -> Void
     ) {
         queue.async {
             let failure: String?
             do {
-                let data = try encode(items)
                 try write(data, to: fileURL, using: fileManager.value)
                 failure = nil
             } catch {
@@ -245,14 +243,18 @@ class JSONFileStore<Element: Identifiable & Codable & Sendable>: ObservableObjec
     func save() {
         saveGeneration += 1
         let generation = saveGeneration
-        let snapshot = items
+        let data: Data
+        do {
+            data = try encodeItems(items)
+        } catch {
+            lastError = saveErrorMessage(error.localizedDescription)
+            return
+        }
         let fileURL = fileURL
-        let encodeItems = encodeItems
         JSONStorePersistence.enqueue(
-            items: snapshot,
+            data: data,
             fileURL: fileURL,
-            fileManager: SerializedFileManager(value: fileManager),
-            encode: encodeItems
+            fileManager: SerializedFileManager(value: fileManager)
         ) { [weak self] failure in
             guard let self, generation == self.saveGeneration else { return }
             self.lastError = failure.map(self.saveErrorMessage)

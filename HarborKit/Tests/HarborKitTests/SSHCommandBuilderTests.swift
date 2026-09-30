@@ -8,7 +8,7 @@ final class SSHCommandBuilderTests: XCTestCase {
     func testMinimalHostUsesDefaultsAndDestinationLast() throws {
         let host = SSHHost(hostname: "example.com")
         let args = try SSHCommandBuilder.arguments(for: host)
-        XCTAssertEqual(args, ["-o", "ServerAliveInterval=30", "-o", "ConnectTimeout=10", "example.com"])
+        XCTAssertEqual(args, ["-o", "StrictHostKeyChecking=ask", "-o", "ServerAliveInterval=30", "-o", "ConnectTimeout=10", "example.com"])
         XCTAssertEqual(args.last, "example.com")
     }
 
@@ -69,8 +69,23 @@ final class SSHCommandBuilderTests: XCTestCase {
     func testIdentityFileEmitsDashI() throws {
         let host = SSHHost(hostname: "h", identityFile: "~/.ssh/id_ed25519")
         let args = try SSHCommandBuilder.arguments(for: host)
+        let identitiesOnlyIndex = try XCTUnwrap(args.firstIndex(of: "IdentitiesOnly=yes"))
+        XCTAssertEqual(args[identitiesOnlyIndex - 1], "-o")
         let idx = try XCTUnwrap(args.firstIndex(of: "-i"))
+        XCTAssertLessThan(identitiesOnlyIndex, idx)
         XCTAssertEqual(args[idx + 1], "~/.ssh/id_ed25519")
+    }
+
+    func testIdentityFileIsolationPrecedesConflictingExtraArg() throws {
+        let host = SSHHost(
+            hostname: "h",
+            identityFile: "~/.ssh/id_ed25519",
+            extraArgs: ["-o", "IdentitiesOnly=no"]
+        )
+        let args = try SSHCommandBuilder.arguments(for: host)
+        let required = try XCTUnwrap(args.firstIndex(of: "IdentitiesOnly=yes"))
+        let conflicting = try XCTUnwrap(args.firstIndex(of: "IdentitiesOnly=no"))
+        XCTAssertLessThan(required, conflicting)
     }
 
     func testNilOrEmptyIdentityFileOmitsDashI() throws {
@@ -85,6 +100,36 @@ final class SSHCommandBuilderTests: XCTestCase {
         XCTAssertTrue(args.contains("/Users/me/My Keys/id_rsa"))
     }
 
+    // MARK: - ProxyJump
+
+    func testProxyJumpEmitsDashJBeforeDestination() throws {
+        let host = SSHHost(hostname: "internal.lan", username: "alice", proxyJump: "admin@bastion:2222")
+        let args = try SSHCommandBuilder.arguments(for: host)
+        XCTAssertEqual(args.last, "alice@internal.lan")
+        let jIndex = try XCTUnwrap(args.firstIndex(of: "-J"))
+        XCTAssertEqual(args[args.index(after: jIndex)], "admin@bastion:2222")
+        XCTAssertLessThan(jIndex, args.count - 1)
+    }
+
+    func testEmptyProxyJumpOmitsDashJ() throws {
+        XCTAssertFalse(try SSHCommandBuilder.arguments(for: SSHHost(hostname: "h")).contains("-J"))
+        XCTAssertFalse(try SSHCommandBuilder.arguments(for: SSHHost(hostname: "h", proxyJump: "  ")).contains("-J"))
+    }
+
+    func testProxyJumpChainIsAllowed() throws {
+        let host = SSHHost(hostname: "h", proxyJump: "u1@j1,u2@j2:2200,j3")
+        let args = try SSHCommandBuilder.arguments(for: host)
+        XCTAssertTrue(args.contains("u1@j1,u2@j2:2200,j3"))
+    }
+
+    func testProxyJumpLeadingDashThrows() {
+        XCTAssertThrowsError(try SSHCommandBuilder.arguments(for: SSHHost(hostname: "h", proxyJump: "-evil")))
+    }
+
+    func testProxyJumpWithWhitespaceThrows() {
+        XCTAssertThrowsError(try SSHCommandBuilder.arguments(for: SSHHost(hostname: "h", proxyJump: "j1 j2")))
+    }
+
     // MARK: - Port forwards
 
     func testLocalForward() throws {
@@ -92,8 +137,17 @@ final class SSHCommandBuilderTests: XCTestCase {
             PortForward(kind: .local, bindPort: 8080, targetHost: "db.internal", targetPort: 5432)
         ])
         let args = try SSHCommandBuilder.arguments(for: host)
+        let exitOnForwardFailure = try XCTUnwrap(args.firstIndex(of: "ExitOnForwardFailure=yes"))
+        let localForward = try XCTUnwrap(args.firstIndex(of: "-L"))
+        XCTAssertEqual(args[exitOnForwardFailure - 1], "-o")
+        XCTAssertLessThan(exitOnForwardFailure, localForward)
         let idx = try XCTUnwrap(args.firstIndex(of: "-L"))
         XCTAssertEqual(args[idx + 1], "8080:db.internal:5432")
+    }
+
+    func testNoForwardDoesNotChangeConnectionFailureBehavior() throws {
+        let args = try SSHCommandBuilder.arguments(for: SSHHost(hostname: "h"))
+        XCTAssertFalse(args.contains("ExitOnForwardFailure=yes"))
     }
 
     func testLocalForwardWithBindAddress() throws {
@@ -103,6 +157,30 @@ final class SSHCommandBuilderTests: XCTestCase {
         let args = try SSHCommandBuilder.arguments(for: host)
         let idx = try XCTUnwrap(args.firstIndex(of: "-L"))
         XCTAssertEqual(args[idx + 1], "127.0.0.1:8080:db:5432")
+    }
+
+    func testForwardBracketsIPv6TargetAndBindAddresses() throws {
+        let host = SSHHost(hostname: "h", portForwards: [
+            PortForward(
+                kind: .local,
+                bindAddress: "2001:db8::2",
+                bindPort: 8080,
+                targetHost: "2001:db8::1",
+                targetPort: 443
+            )
+        ])
+        let args = try SSHCommandBuilder.arguments(for: host)
+        let idx = try XCTUnwrap(args.firstIndex(of: "-L"))
+        XCTAssertEqual(args[idx + 1], "[2001:db8::2]:8080:[2001:db8::1]:443")
+    }
+
+    func testForwardPreservesAlreadyBracketedIPv6Target() throws {
+        let host = SSHHost(hostname: "h", portForwards: [
+            PortForward(kind: .remote, bindPort: 8080, targetHost: "[::1]", targetPort: 443)
+        ])
+        let args = try SSHCommandBuilder.arguments(for: host)
+        let idx = try XCTUnwrap(args.firstIndex(of: "-R"))
+        XCTAssertEqual(args[idx + 1], "8080:[::1]:443")
     }
 
     func testRemoteForward() throws {
@@ -245,6 +323,7 @@ final class SSHCommandBuilderTests: XCTestCase {
         let socket = "/Users/me/.cache/harbor/cm-c8226096af42e418"
         let args = try SSHCommandBuilder.arguments(for: host, controlSocketPath: socket)
         XCTAssertEqual(args, [
+            "-o", "StrictHostKeyChecking=ask",
             "-o", "ServerAliveInterval=30",
             "-o", "ConnectTimeout=10",
             "-o", "ControlMaster=auto",
@@ -279,6 +358,53 @@ final class SSHCommandBuilderTests: XCTestCase {
         let host = SSHHost(hostname: "example.com", username: "alice")
         let args = try SSHCommandBuilder.arguments(for: host, controlSocketPath: "/tmp/cm-x")
         XCTAssertEqual(args.last, SSHCommandBuilder.destination(for: host))
+    }
+
+    func testDefaultOptionsPinStrictHostKeyCheckingAskBeforeExtraArgs() throws {
+        let args = try SSHCommandBuilder.arguments(for: SSHHost(hostname: "h"))
+        let askIndex = try XCTUnwrap(args.firstIndex(of: "StrictHostKeyChecking=ask"))
+        XCTAssertEqual(args[askIndex - 1], "-o")
+
+        let withExtra = try SSHCommandBuilder.arguments(for: SSHHost(
+            hostname: "h",
+            extraArgs: ["-v", "-o", "Compression=yes"]
+        ))
+        let policy = try XCTUnwrap(withExtra.firstIndex(of: "StrictHostKeyChecking=ask"))
+        let extra = try XCTUnwrap(withExtra.firstIndex(of: "-v"))
+        XCTAssertLessThan(policy, extra)
+    }
+
+    func testValidatedDestinationSucceedsForNormalHostAndUser() throws {
+        XCTAssertEqual(
+            try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "example.com")),
+            "example.com"
+        )
+        XCTAssertEqual(
+            try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "example.com", username: "alice")),
+            "alice@example.com"
+        )
+        let host = SSHHost(hostname: " example.com ", username: " alice ")
+        XCTAssertEqual(try SSHCommandBuilder.validatedDestination(for: host), SSHCommandBuilder.destination(for: host))
+    }
+
+    func testValidatedDestinationThrowsOnEmptyHostname() {
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: ""))) { error in
+            XCTAssertEqual(error as? SSHCommandError, .emptyHostname)
+        }
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "   "))) { error in
+            XCTAssertEqual(error as? SSHCommandError, .emptyHostname)
+        }
+    }
+
+    func testValidatedDestinationRejectsLeadingDashWhitespaceAndControlCharacters() {
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "-evil")))
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "evil host")))
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "evil\thost")))
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "h\u{01}")))
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "h", username: "-bad")))
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "h", username: "bad user")))
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "h", username: "bad\tuser")))
+        XCTAssertThrowsError(try SSHCommandBuilder.validatedDestination(for: SSHHost(hostname: "h", username: "u\u{01}")))
     }
 
     func testAuxiliaryCommandShapeKeepsScriptAsSingleArgvElement() throws {

@@ -58,6 +58,9 @@ struct TransferRowView: View {
                 case .failed:
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(DS.Colors.statusError)
+                case .cancelled:
+                    Image(systemName: "minus.circle.fill")
+                        .foregroundStyle(.secondary)
                 }
             }
             .font(.system(size: 11))
@@ -110,9 +113,24 @@ struct TransferRowView: View {
                         .foregroundStyle(DS.Colors.statusError)
                         .lineLimit(2)
                         .help(reason)
+                case .cancelled:
+                    Text(L("已取消"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 0)
+            if transfer.state == .running {
+                Button {
+                    service.cancelTransfer(id: transfer.id)
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(L("取消传输"))
+            }
             if transfer.isRetryable {
                 Button {
                     service.retryTransfer(transfer.id)
@@ -123,6 +141,7 @@ struct TransferRowView: View {
                 }
                 .buttonStyle(.plain)
                 .help(L("重试"))
+                .disabled(!service.canInteract)
             }
         }
     }

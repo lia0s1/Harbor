@@ -9,6 +9,7 @@ import HarborKit
 enum HostExportImport {
     private static let maxImportBytes = 16 * 1024 * 1024
     private static let maxImportedItems = 10_000
+    @MainActor private static var isBusy = false
 
     // MARK: - Export
 
@@ -16,6 +17,7 @@ enum HostExportImport {
     /// blocking the window while a large backup is serialized.
     @MainActor
     static func exportHosts(hosts: [SSHHost], commands: [QuickCommand]) {
+        guard !isBusy else { return }
         let panel = NSSavePanel()
         panel.title = L("导出主机")
         panel.message = L("把已保存的主机和快捷命令存为一个 .harbor 备份文件。")
@@ -24,8 +26,10 @@ enum HostExportImport {
         panel.prompt = L("导出")
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
+        isBusy = true
         let bundle = HostBundle(hosts: hosts, commands: commands)
         Task {
+            defer { isBusy = false }
             let failure: String? = await Task.detached(priority: .userInitiated) { () -> String? in
                 do {
                     let data = try JSONEncoder().encode(bundle)
@@ -69,6 +73,7 @@ enum HostExportImport {
         hostStore: HostStore,
         quickCommandStore: QuickCommandStore
     ) {
+        guard !isBusy else { return }
         let panel = NSOpenPanel()
         panel.title = L("导入主机")
         panel.message = L("选择一个 .harbor 备份文件。相同 ID 且连接目标一致的主机将更新；目标不一致时会作为新主机导入。")
@@ -78,7 +83,9 @@ enum HostExportImport {
         panel.prompt = L("导入")
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
+        isBusy = true
         Task {
+            defer { isBusy = false }
             switch await Task.detached(priority: .userInitiated, operation: {
                 loadImportBundle(from: url)
             }).value {
@@ -140,6 +147,11 @@ enum HostExportImport {
         var byID = Dictionary(grouping: currentHosts, by: \.id).compactMapValues(\.first)
         var updatedHosts = 0
         var addedHosts = 0
+        // Keep the normalized new records in insertion order. A conflicting
+        // imported ID is deliberately regenerated below; rebuilding from the
+        // original bundle later would otherwise look up the old ID and silently
+        // omit the host we just counted as added.
+        var newHosts: [SSHHost] = []
         for var host in bundle.hosts {
             if let existing = byID[host.id] {
                 if sameConnectionIdentity(existing, host) {
@@ -149,10 +161,12 @@ enum HostExportImport {
                     repeat { host.id = UUID() } while byID[host.id] != nil
                     byID[host.id] = host
                     addedHosts += 1
+                    newHosts.append(host)
                 }
             } else {
                 byID[host.id] = host
                 addedHosts += 1
+                newHosts.append(host)
             }
         }
 
@@ -164,10 +178,6 @@ enum HostExportImport {
             if currentCommandIDs.contains(command.id) { updatedCommands += 1 }
         }
         let existingOrdered = currentHosts.compactMap { byID[$0.id] }
-        let existingIDs = Set(currentHosts.map { $0.id })
-        let newHosts = bundle.hosts
-            .filter { !existingIDs.contains($0.id) }
-            .compactMap { byID[$0.id] }
         let mergedHosts = existingOrdered + newHosts
 
         let existingCommandOrder = currentCommands.compactMap { commandsByID[$0.id] }

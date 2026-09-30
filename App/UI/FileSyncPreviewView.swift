@@ -4,6 +4,7 @@ import SwiftUI
 /// controls: remote-only files are displayed as retained, never as removals.
 struct DirectorySyncPreviewSheet: View {
     let preview: DirectorySyncPreview
+    var isApplyEnabled: Bool = true
     let onApply: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -26,6 +27,27 @@ struct DirectorySyncPreviewSheet: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
+
+            if preview.truncated {
+                Text(L("对比结果过多，仅显示前 %lld 项。", FileService.maxDirectoryEntries))
+                    .font(.caption)
+                    .foregroundStyle(DS.Colors.statusConnecting)
+            }
+
+            if preview.remoteListingTruncated {
+                HStack(spacing: DS.Space.s) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(DS.Colors.statusError)
+                    Text(L("远程目录列表被截断，对比结果不完整，无法安全上传。请改用更小的目录。"))
+                        .font(.caption)
+                        .foregroundStyle(DS.Colors.statusError)
+                }
+            }
+
+            Text(L("仅比较顶层文件，已跳过 %lld 个子目录。", preview.skippedDirectories))
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             if preview.changes.isEmpty {
                 ContentUnavailableView(
@@ -78,7 +100,7 @@ struct DirectorySyncPreviewSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .disabled(uploadCount == 0)
+                .disabled(uploadCount == 0 || !isApplyEnabled || preview.remoteListingTruncated)
             }
         }
         .padding(DS.Space.l)

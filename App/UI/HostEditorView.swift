@@ -29,6 +29,7 @@ struct HostEditorView: View {
     @State private var portText: String
     @State private var username: String
     @State private var identityFile: String
+    @State private var proxyJump: String
     @State private var tagsText: String
     @State private var extraArgsText: String
     @State private var notes: String
@@ -47,6 +48,12 @@ struct HostEditorView: View {
     /// Transient password used only for one-click passwordless setup; never saved.
     @State private var setupPassword = ""
     @State private var setupStatus: SetupStatus = .idle
+    @State private var isSaving = false
+    @State private var connectionTestStatus: SetupStatus = .idle
+    @State private var showTOTPSetup = false
+    @State private var hasTOTPSecret = false
+
+    @EnvironmentObject private var hostStore: HostStore
 
     private enum SetupStatus: Equatable {
         case idle, running
@@ -71,6 +78,7 @@ struct HostEditorView: View {
         _portText = State(initialValue: host.port == SSHHost.defaultPort ? "" : String(host.port))
         _username = State(initialValue: host.username)
         _identityFile = State(initialValue: host.identityFile ?? "")
+        _proxyJump = State(initialValue: host.proxyJump)
         _tagsText = State(initialValue: host.tags.joined(separator: ", "))
         _extraArgsText = State(initialValue: host.extraArgs.joined(separator: " "))
         _notes = State(initialValue: host.notes)
@@ -84,6 +92,7 @@ struct HostEditorView: View {
             portText: host.port == SSHHost.defaultPort ? "" : String(host.port),
             username: host.username,
             identityFile: host.identityFile ?? "",
+            proxyJump: host.proxyJump,
             tagsText: host.tags.joined(separator: ", "),
             extraArgsText: host.extraArgs.joined(separator: " "),
             notes: host.notes,
@@ -116,6 +125,17 @@ struct HostEditorView: View {
         }
         .frame(width: 520, height: 600)
         .onChange(of: hostname) { _, _ in hostnameWasEdited = true }
+        .onAppear { hasTOTPSecret = TOTPStore.load(for: hostID) != nil }
+        .sheet(isPresented: $showTOTPSetup) {
+            TOTPSetupView(hostID: hostID, hostName: totpHostName)
+                .onDisappear { hasTOTPSecret = TOTPStore.load(for: hostID) != nil }
+        }
+    }
+
+    /// Name used in the TOTP sheet's copy: explicit name, else hostname.
+    private var totpHostName: String {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? hostname : trimmed
     }
 
     // MARK: - Sections
@@ -150,12 +170,105 @@ struct HostEditorView: View {
                 prompt: Text(verbatim: connectionProtocol == .rdp ? "3389" : "22")
             )
             TextField(L("用户名"), text: $username, prompt: Text(verbatim: L("可选")))
+            if connectionProtocol == .ssh {
+                TextField(L("跳板机（ProxyJump）"), text: $proxyJump, prompt: Text(verbatim: L("可选，如 admin@bastion:2222")))
+            }
             if connectionProtocol == .rdp {
                 TextField(L("域"), text: $rdpDomain, prompt: Text(verbatim: L("CORP（可选）")))
+            }
+            if let duplicate = duplicateWarning {
+                Label(duplicate, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if connectionProtocol == .ssh {
+                testConnectionControls
             }
         }
     }
 
+    /// Warns when another saved entry already uses this hostname+port, which
+    /// would create an indistinguishable duplicate in the sidebar.
+    private var duplicateWarning: String? {
+        let trimmedHost = hostname.trimmingCharacters(in: .whitespaces)
+        guard !trimmedHost.isEmpty else { return nil }
+        let trimmedPort = portText.trimmingCharacters(in: .whitespaces)
+        let port: Int
+        if trimmedPort.isEmpty {
+            port = connectionProtocol == .rdp ? SSHHost.defaultRDPPort : SSHHost.defaultPort
+        } else if let parsed = Int(trimmedPort), (1...65535).contains(parsed) {
+            port = parsed
+        } else {
+            return nil
+        }
+        let exists = hostStore.hosts.contains {
+            $0.id != hostID
+                && $0.hostname.lowercased() == trimmedHost.lowercased()
+                && $0.port == port
+        }
+        return exists ? L("已存在相同主机名和端口的条目，保存将产生重复主机。") : nil
+    }
+
+    @ViewBuilder
+    private var testConnectionControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: DS.Space.s) {
+                Button(L("测试连接")) { runConnectionTest() }
+                    .disabled(!canTestConnection)
+                if case .running = connectionTestStatus {
+                    ProgressView().controlSize(.small).scaleEffect(0.8)
+                }
+            }
+            switch connectionTestStatus {
+            case .idle, .running:
+                EmptyView()
+            case .success(let message):
+                Label(message, systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            case .failure(let message):
+                Label(message, systemImage: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var canTestConnection: Bool {
+        if case .running = connectionTestStatus { return false }
+        return connectionProtocol == .ssh
+            && !hostname.trimmingCharacters(in: .whitespaces).isEmpty
+            && passwordlessPort != nil
+    }
+
+    /// Key-only reachability probe (BatchMode: passwords are never sent).
+    private func runConnectionTest() {
+        guard canTestConnection, let port = passwordlessPort else { return }
+        let trimmedHost = hostname.trimmingCharacters(in: .whitespaces)
+        var argv = ["/usr/bin/ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-p", String(port)]
+        let identity = identityFile.trimmingCharacters(in: .whitespaces)
+        if !identity.isEmpty { argv += ["-i", identity] }
+        let user = username.trimmingCharacters(in: .whitespaces)
+        argv += [user.isEmpty ? trimmedHost : "\(user)@\(trimmedHost)", "true"]
+        connectionTestStatus = .running
+        Task {
+            let output = await AuxProcess.run(argv: argv, timeout: 10)
+            if output.exitCode == 0 {
+                connectionTestStatus = .success(L("连接成功（密钥认证可用）"))
+            } else {
+                let message = output.stderrText
+                    .split(separator: "\n")
+                    .map(String.init)
+                    .last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
+                connectionTestStatus = .failure(
+                    message ?? L("连接失败（退出码 %lld）", output.exitCode))
+            }
+        }
+    }
+
+    @ViewBuilder
     private var identitySection: some View {
         Section(L("认证")) {
             LabeledContent(L("密钥文件")) {
@@ -180,9 +293,24 @@ struct HostEditorView: View {
                 }
             }
 
-            // One-click passwordless login: enter the password once and Harbor
-            // only appends this Mac's public key to authorized_keys. The host
-            // fingerprint must already be trusted through interactive ssh.
+            if connectionProtocol == .ssh {
+                Button {
+                    showTOTPSetup = true
+                } label: {
+                    Label(
+                        hasTOTPSecret ? L("查看两步验证…") : L("配置两步验证…"),
+                        systemImage: "timer"
+                    )
+                }
+                .help(L("TOTP 密钥保存在系统钥匙串，连接时检测到验证码提示可一键自动填充。"))
+            }
+        }
+
+        // One-click passwordless login gets its own clearly-labeled section:
+        // enter the password once and Harbor only appends this Mac's public
+        // key to authorized_keys. The host fingerprint must already be
+        // trusted through interactive ssh.
+        Section(L("一键免密登录")) {
             LabeledContent(L("密码")) {
                 SecureField(
                     "",
@@ -346,7 +474,7 @@ struct HostEditorView: View {
                     Button(saveLabel) { save() }
                         .buttonStyle(.glassProminent)
                         .keyboardShortcut(.defaultAction)
-                        .disabled(!isValid)
+                        .disabled(!isValid || isSaving)
                 }
             }
         }
@@ -400,6 +528,7 @@ struct HostEditorView: View {
             port: port,
             username: username.trimmingCharacters(in: .whitespaces),
             identityFile: trimmedIdentity.isEmpty ? nil : trimmedIdentity,
+            proxyJump: proxyJump.trimmingCharacters(in: .whitespaces),
             extraArgs: extraArgs,
             portForwards: portForwards,
             tags: parsedTags,
@@ -437,6 +566,7 @@ struct HostEditorView: View {
         var portText: String
         var username: String
         var identityFile: String
+        var proxyJump: String
         var tagsText: String
         var extraArgsText: String
         var notes: String
@@ -453,6 +583,7 @@ struct HostEditorView: View {
             portText: portText,
             username: username,
             identityFile: identityFile,
+            proxyJump: proxyJump,
             tagsText: tagsText,
             extraArgsText: extraArgsText,
             notes: notes,
@@ -476,7 +607,8 @@ struct HostEditorView: View {
     }
 
     private func save() {
-        guard case .success(let host) = buildResult else { return }
+        guard !isSaving, case .success(let host) = buildResult else { return }
+        isSaving = true
         onSave(host)
         dismiss()
     }

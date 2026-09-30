@@ -182,8 +182,14 @@ final class HarborTerminalView: LocalProcessTerminalView {
 
     @objc private func harborPasteAndExecute(_ sender: NSMenuItem) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
-        send(txt: text)
-        send(txt: "\r")
+        // Read once before asking: the reviewed text is exactly what reaches
+        // the terminal if the user confirms, even if another app changes the
+        // pasteboard while the alert is visible. Plain Paste intentionally
+        // remains unchanged; only this execution shortcut is coordinated.
+        CommandExecutionConfirmationCoordinator.requestExecution(of: text, from: self) { [weak self] in
+            self?.send(txt: text)
+            self?.send(txt: "\r")
+        }
     }
 
     @objc private func harborChooseWallpaper() {
@@ -274,35 +280,224 @@ final class HarborTerminalView: LocalProcessTerminalView {
     }
 }
 
+/// AppKit bridge for the terminal context-menu execution shortcut. SwiftUI
+/// surfaces render their own alerts, but they all derive their decision from
+/// `CommandExecutionCoordinator`; this bridge gives Paste-and-Execute the same
+/// policy instead of bypassing it by writing clipboard text plus Return.
+@MainActor
+private enum CommandExecutionConfirmationCoordinator {
+    static func requestExecution(of command: String, from source: NSView, execute: @escaping () -> Void) {
+        guard let risk = CommandExecutionCoordinator.confirmationRisk(for: command) else {
+            execute()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L("确认发送高风险命令")
+        alert.informativeText = "\(risk.summary)\n\n\(command)"
+        alert.addButton(withTitle: L("仍然发送"))
+        alert.addButton(withTitle: L("取消"))
+
+        let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn else { return }
+            execute()
+        }
+        if let window = source.window {
+            alert.beginSheetModal(for: window, completionHandler: handleResponse)
+        } else {
+            handleResponse(alert.runModal())
+        }
+    }
+}
+
 /// Thread-safe recording writer kept separate from the main-actor session.
 /// Terminal output can enqueue bytes without capturing actor-isolated state;
-/// `close()` drains all queued writes before closing the file.
+/// `close()` drains all queued writes before closing the file.  Both the
+/// in-memory queue and the on-disk recording are explicitly bounded because a
+/// connected terminal peer controls the volume of data it can produce.
 private final class TerminalRecordingSink: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "dev.zero.Harbor.recording")
-    private var handle: FileHandle?
+    enum Failure: Sendable, Equatable {
+        case backlogLimitExceeded
+        case sizeLimitExceeded
+        case writeFailed
 
-    init(handle: FileHandle) {
-        self.handle = handle
+        /// Localization is actor-isolated in the app, so this type carries a
+        /// stable key and TerminalSession renders it on the main actor.
+        var messageKey: String {
+            switch self {
+            case .backlogLimitExceeded:
+                return "终端输出过快，录制已停止以保护内存"
+            case .sizeLimitExceeded:
+                return "录制文件达到大小上限，已停止录制"
+            case .writeFailed:
+                return "无法写入录制文件，已停止录制"
+            }
+        }
     }
 
-    func write(_ data: Data) {
-        queue.async { [self] in
-            handle?.write(data)
+    /// A slow or stalled filesystem must not turn DispatchQueue.async calls
+    /// into an unbounded heap queue.  Four MiB is enough for several terminal
+    /// screens while still making an overloaded recorder fail promptly.
+    private static let maximumPendingBytes = 4 * 1024 * 1024
+    /// Keep a single recording from filling the user's disk indefinitely.
+    private static let maximumRecordingBytes: Int64 = 256 * 1024 * 1024
+
+    private let queue = DispatchQueue(label: "dev.zero.Harbor.recording")
+    private let queueKey = DispatchSpecificKey<UInt8>()
+    private let lock = NSLock()
+    private var handle: FileHandle?
+    private var pendingChunks: [Data] = []
+    private var pendingBytes = 0
+    /// Bytes removed from `pendingChunks` but currently being written.  Count
+    /// them in admission control so a slow write cannot let producers enqueue
+    /// another full backlog on top of the in-flight chunk(s).
+    private var reservedBytes = 0
+    private var bytesWritten: Int64 = 0
+    private var drainScheduled = false
+    private var acceptingWrites = true
+    private var closeRequested = false
+    private var failureReported = false
+    private let onFailure: @Sendable (Failure) -> Void
+
+    init(handle: FileHandle, onFailure: @escaping @Sendable (Failure) -> Void) {
+        self.handle = handle
+        self.onFailure = onFailure
+        queue.setSpecific(key: queueKey, value: 1)
+    }
+
+    /// Adds one raw terminal chunk if both resource budgets allow it.  This is
+    /// called on SwiftTerm's I/O thread, so it schedules at most one writer
+    /// block and never waits for disk I/O.
+    func write(_ bytes: ArraySlice<UInt8>) {
+        var shouldScheduleDrain = false
+        var failure: Failure?
+
+        lock.lock()
+        if acceptingWrites {
+            let queuedOrWritingBytes = pendingBytes + reservedBytes
+            let projectedFileBytes = bytesWritten + Int64(queuedOrWritingBytes) + Int64(bytes.count)
+            if bytes.count > Self.maximumPendingBytes - queuedOrWritingBytes {
+                failure = stopAcceptingLocked(for: .backlogLimitExceeded)
+            } else if projectedFileBytes > Self.maximumRecordingBytes {
+                failure = stopAcceptingLocked(for: .sizeLimitExceeded)
+            } else {
+                // Only materialize a Data copy after verifying capacity, so
+                // rejected high-rate output cannot allocate an extra backlog.
+                pendingChunks.append(Data(bytes))
+                pendingBytes += bytes.count
+            }
+        }
+        shouldScheduleDrain = scheduleDrainIfNeededLocked()
+        lock.unlock()
+
+        if shouldScheduleDrain {
+            queue.async { [weak self] in self?.drain() }
+        }
+        if let failure {
+            onFailure(failure)
         }
     }
 
     func close() {
-        queue.sync { [self] in
-            handle?.closeFile()
-            handle = nil
+        var shouldScheduleDrain = false
+        lock.lock()
+        acceptingWrites = false
+        closeRequested = true
+        shouldScheduleDrain = scheduleDrainIfNeededLocked()
+        lock.unlock()
+
+        if shouldScheduleDrain {
+            queue.async { [weak self] in self?.drain() }
+        }
+        // A close from the writer itself must not synchronously wait on its own
+        // serial queue.  Every other caller waits until all accepted writes have
+        // been flushed and the descriptor is closed.
+        if DispatchQueue.getSpecific(key: queueKey) == nil {
+            queue.sync {}
         }
     }
 
     deinit {
-        // Dispatch sync to drain any in-flight write before closing,
-        // matching the contract of close().
-        queue.sync { [handle] in
-            handle?.closeFile()
+        close()
+    }
+
+    /// Must be called with `lock` held.  Returns the failure only once so a
+    /// terminal flood cannot create a matching flood of UI notifications.
+    private func stopAcceptingLocked(for reason: Failure) -> Failure? {
+        acceptingWrites = false
+        closeRequested = true
+        guard !failureReported else { return nil }
+        failureReported = true
+        return reason
+    }
+
+    /// Must be called with `lock` held.
+    private func scheduleDrainIfNeededLocked() -> Bool {
+        guard !drainScheduled, (!pendingChunks.isEmpty || closeRequested) else {
+            return false
+        }
+        drainScheduled = true
+        return true
+    }
+
+    private func drain() {
+        while true {
+            let next: Data?
+            let fileHandle: FileHandle?
+
+            lock.lock()
+            if !pendingChunks.isEmpty {
+                next = pendingChunks.removeFirst()
+                pendingBytes -= next?.count ?? 0
+                reservedBytes += next?.count ?? 0
+                fileHandle = handle
+            } else {
+                drainScheduled = false
+                if closeRequested {
+                    let closingHandle = handle
+                    handle = nil
+                    lock.unlock()
+                    try? closingHandle?.close()
+                    return
+                }
+                lock.unlock()
+                return
+            }
+            lock.unlock()
+
+            guard let next, let fileHandle else {
+                reportWriteFailure()
+                continue
+            }
+
+            do {
+                try fileHandle.write(contentsOf: next)
+                lock.lock()
+                reservedBytes -= next.count
+                bytesWritten += Int64(next.count)
+                lock.unlock()
+            } catch {
+                lock.lock()
+                reservedBytes -= next.count
+                lock.unlock()
+                reportWriteFailure()
+            }
+        }
+    }
+
+    private func reportWriteFailure() {
+        var failure: Failure?
+        lock.lock()
+        // No point retaining additional chunks after an I/O error; release the
+        // bounded queue immediately and close the descriptor in this drain.
+        pendingChunks.removeAll(keepingCapacity: false)
+        pendingBytes = 0
+        reservedBytes = 0
+        failure = stopAcceptingLocked(for: .writeFailed)
+        lock.unlock()
+        if let failure {
+            onFailure(failure)
         }
     }
 }
@@ -324,14 +519,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     }
 
     let id = UUID()
-    /// Snapshot of the host at connect time; later edits to the saved host do
-    /// not affect a live session.
-    let host: SSHHost
+    /// Connect-time host snapshot. `reconnect()` refreshes it from the saved
+    /// host (via `hostProvider`) so edits apply on the next dial; between
+    /// connects later edits do not affect a live session.
+    private(set) var host: SSHHost
     /// Literal (already expanded) ControlMaster socket path shared by this
     /// session and its auxiliary monitoring commands.
     let controlSocketPath: String
     /// `[user@]host` exactly as passed to ssh, for `-O check`/aux commands.
-    let destination: String
+    private(set) var destination: String
 
     @Published private(set) var state: State = .connecting
     /// >0 while `SessionManager` is auto-reconnecting after an UNEXPECTED drop
@@ -346,15 +542,35 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published private(set) var terminalView: LocalProcessTerminalView
     /// True while terminal output is being saved to ~/Library/Logs/Harbor/.
     @Published private(set) var isRecording = false
+    /// Most recent recorder failure.  The terminal also receives a local
+    /// marker when this changes so a high-rate peer cannot stop recording
+    /// silently while the user is looking at the session.
+    @Published private(set) var recordingError: String?
     /// Current working directory reported by the shell via OSC 7.
     @Published private(set) var currentDirectory: String? = nil
+    /// True after `TOTPPromptDetector` sees a 2FA prompt and this host has a
+    /// Keychain secret. The session never stores the secret itself.
+    @Published private(set) var totpPromptVisible = false
     /// User-assigned tab label; when set, terminal-escape titles are ignored.
     private var customTitle: String? = nil
     private var recordingSink: TerminalRecordingSink?
+    /// Watches PTY output for 2FA prompts. Fed from the composed interceptor.
+    private let totpDetector = TOTPPromptDetector()
+    private var totpSecretPresent = false
+    /// Identifies the current start/record operation.  A late setup or writer
+    /// callback from a previous recording must never attach to, or stop, a new
+    /// recording after the user toggles it again.
+    private var recordingToken: UUID?
     private var runningFallbackTask: Task<Void, Never>?
 
-    /// argv for /usr/bin/ssh, excluding the executable itself. Validated once at init.
-    private let arguments: [String]
+    /// argv for /usr/bin/ssh, excluding the executable itself. Validated at
+    /// init and rebuilt from the current saved host on reconnect.
+    private var arguments: [String]
+
+    /// Resolves the CURRENT saved host for reconnect; set by SessionManager.
+    /// Nil (local shells) or a lookup miss (host deleted) keeps the
+    /// connect-time snapshot argv.
+    var hostProvider: (@MainActor () -> SSHHost?)?
 
     /// Throws (SSHCommandError) when the host fails injection-safety validation.
     ///
@@ -385,6 +601,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         self.terminalView = LocalProcessTerminalView(frame: .zero)
         super.init()
         self.terminalView = makeTerminalView()
+        installTOTPPromptHandling()
         scheduleRunningFallback()
     }
 
@@ -405,17 +622,33 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     }
 
     deinit {
-        recordingSink?.close()
+        if let sink = recordingSink {
+            TerminalSession.closeRecordingSink(sink)
+        }
         runningFallbackTask?.cancel()
     }
 
-    /// Tears down the child process if it is still running.
-    func terminate() {
-        guard !state.isExited else { return }
+    /// Tears down the child process if it is still running. The completion is
+    /// invoked only after the direct child has exited or was already reaped;
+    /// app termination uses it to avoid exiting while a TERM-resistant session
+    /// is still alive.
+    func terminate(completion: @escaping @Sendable () -> Void = {}) {
+        guard !state.isExited else {
+            completion()
+            return
+        }
         // SwiftTerm's terminate() sends SIGTERM but cancels its exit monitor
         // before the child dies, so it is never reaped via waitpid and would
         // linger as a zombie until app quit. Reap it ourselves off-main.
         let pid = terminalView.process.shellPid
+        // `forkpty` makes the shell a session/process-group leader. Signal the
+        // whole group when that invariant holds so an ssh child or a shell
+        // pipeline does not survive after its direct parent has exited. The
+        // equality check keeps us from ever signalling an unrelated group.
+        let isProcessGroupLeader = pid > 0 && getpgid(pid) == pid
+        if isProcessGroupLeader {
+            kill(-pid, SIGTERM)
+        }
         terminalView.terminate()
         if pid > 0 {
             DispatchQueue.global(qos: .utility).async {
@@ -431,14 +664,27 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 let deadline = Date().addingTimeInterval(1)
                 while true {
                     let result = waitpid(pid, &status, WNOHANG)
-                    if result == pid { return } // reaped
-                    if result < 0 { return }    // gone / not our child (errno ECHILD)
+                    if result == pid {
+                        completion()
+                        return // reaped
+                    }
+                    if result < 0 {
+                        completion()
+                        return // gone / not our child (errno ECHILD)
+                    }
                     if Date() >= deadline { break }
                     usleep(20_000) // 20ms between polls
                 }
-                kill(pid, SIGKILL)
+                if isProcessGroupLeader, getpgid(pid) == pid {
+                    kill(-pid, SIGKILL)
+                } else {
+                    kill(pid, SIGKILL)
+                }
                 waitpid(pid, &status, 0) // SIGKILL is uncatchable: this returns promptly
+                completion()
             }
+        } else {
+            completion()
         }
     }
 
@@ -462,11 +708,27 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         terminalView.scrollToBottom()
     }
 
+    /// Hides the inline 2FA banner without sending anything.
+    func dismissTOTPPrompt() {
+        totpPromptVisible = false
+    }
+
+    /// Types the current TOTP code + newline into the PTY, then hides the banner.
+    /// Never auto-invoked: the user has to click 发送. No-op unless `.running`.
+    func sendTOTPCode(_ code: String) {
+        guard state == .running else { return }
+        sendText(code + "\n")
+        dismissTOTPPrompt()
+    }
+
     /// Begins capturing terminal output to ~/Library/Logs/Harbor/<host>-<date>.log.
     /// No-op if already recording. File I/O runs in a detached task so a slow or
     /// contended filesystem never blocks the main actor.
     func startRecording() {
-        guard !isRecording else { return }
+        guard !isRecording, recordingToken == nil else { return }
+        let token = UUID()
+        recordingToken = token
+        recordingError = nil
         let hostname = host.hostname
         let logsDir = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Logs/Harbor", isDirectory: true)
@@ -477,6 +739,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: logsDir.path)
             } catch {
                 os_log(.error, "Failed to create Harbor log directory at %{public}@: %{public}@", logsDir.path, error.localizedDescription)
+                await MainActor.run { [weak self] in
+                    self?.recordingStartFailed(token: token, message: L("无法创建录制目录"))
+                }
+                return
             }
             let fmt = ISO8601DateFormatter()
             fmt.formatOptions = [.withFullDate, .withTime, .withColonSeparatorInTime]
@@ -485,6 +751,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             let url = logsDir.appendingPathComponent("\(safe)-\(stamp).log")
             guard fm.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
                 NSLog("Harbor: startRecording: failed to create log file at \(url.path)")
+                await MainActor.run { [weak self] in
+                    self?.recordingStartFailed(token: token, message: L("无法创建录制文件"))
+                }
                 return
             }
             let handle: FileHandle
@@ -492,32 +761,41 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 handle = try FileHandle(forWritingTo: url)
             } catch {
                 NSLog("Harbor: startRecording: cannot open log file for writing: \(error)")
+                await MainActor.run { [weak self] in
+                    self?.recordingStartFailed(token: token, message: L("无法打开录制文件"))
+                }
                 return
             }
-            let sink = TerminalRecordingSink(handle: handle)
+            let sink = TerminalRecordingSink(handle: handle) { [weak self] failure in
+                Task { @MainActor [weak self] in
+                    self?.recordingFailed(token: token, failure: failure)
+                }
+            }
             await MainActor.run { [weak self] in
-                guard let self else {
+                guard let self, self.recordingToken == token, !self.isRecording else {
                     sink.close()
                     return
                 }
                 self.recordingSink = sink
                 self.isRecording = true
-                (self.terminalView as? HarborTerminalView)?.dataInterceptor = { [weak sink] slice in
-                    sink?.write(Data(slice))
-                }
+                self.refreshDataInterceptor()
             }
         }
     }
 
     /// Stops recording and closes the log file.
     func stopRecording() {
-        guard isRecording else { return }
-        (terminalView as? HarborTerminalView)?.dataInterceptor = nil
+        guard isRecording || recordingToken != nil else { return }
+        recordingToken = nil
         // Drain any in-flight write before closing so a late write can't hit a
-        // closed handle.
-        recordingSink?.close()
+        // closed handle. Keep the TOTP feed alive via refreshDataInterceptor().
+        let sink = recordingSink
         recordingSink = nil
         isRecording = false
+        refreshDataInterceptor()
+        if let sink {
+            TerminalSession.closeRecordingSink(sink)
+        }
     }
 
     /// Set by `SessionManager` to drive the auto-reconnect banner.
@@ -533,26 +811,104 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         title = customTitle ?? host.displayName
     }
 
-    /// Fresh terminal view + fresh ssh process for the same host.
+    /// Fresh terminal view + fresh ssh process. The argv is rebuilt from the
+    /// CURRENT saved host so edits to address/port/user/identity apply; a
+    /// deleted host, a protocol switch, or a validation failure falls back to
+    /// the connect-time snapshot argv.
     func reconnect() {
         guard state.isExited else { return }
+        if let stored = hostProvider?(),
+           stored.connectionProtocol == host.connectionProtocol,
+           let rebuilt = try? SSHCommandBuilder.arguments(
+               for: TerminalSession.expandingIdentityTilde(stored),
+               controlSocketPath: controlSocketPath) {
+            host = stored
+            destination = SSHCommandBuilder.destination(for: stored)
+            arguments = rebuilt
+        }
         state = .connecting
         title = host.displayName
         // Silence the old view's first-output callback before discarding it so
         // a delayed delivery can't race with the new session's state machine.
         (terminalView as? HarborTerminalView)?.onFirstOutput = nil
-        // Also clear any active recording interceptor from the old view and
-        // rewire it to the fresh view (recording stays active across reconnects).
-        if isRecording {
-            (terminalView as? HarborTerminalView)?.dataInterceptor = nil
-        }
+        (terminalView as? HarborTerminalView)?.dataInterceptor = nil
+        resetTOTPPrompt()
         terminalView = makeTerminalView()
-        if isRecording, let sink = recordingSink {
-            (terminalView as? HarborTerminalView)?.dataInterceptor = { [weak sink] slice in
-                sink?.write(Data(slice))
-            }
-        }
+        // Recording stays active across reconnects; TOTP feed is reattached
+        // when this host still has a Keychain secret.
+        refreshDataInterceptor()
         scheduleRunningFallback()
+    }
+
+    private func recordingStartFailed(token: UUID, message: String) {
+        guard recordingToken == token else { return }
+        recordingToken = nil
+        recordingError = message
+    }
+
+    private func recordingFailed(token: UUID, failure: TerminalRecordingSink.Failure) {
+        guard recordingToken == token else { return }
+        let message = L(failure.messageKey)
+        recordingToken = nil
+        let sink = recordingSink
+        recordingSink = nil
+        isRecording = false
+        recordingError = message
+        refreshDataInterceptor()
+        if let sink {
+            TerminalSession.closeRecordingSink(sink)
+        }
+        // This is fed only into the local terminal emulator, never sent to the
+        // remote host.  It gives the user immediate feedback even when the
+        // recording control itself is not currently visible.
+        terminalView.feed(text: "\r\n[Harbor: \(message)]\r\n")
+    }
+
+    /// `TerminalRecordingSink.close()` deliberately drains accepted writes;
+    /// keep that potentially slow filesystem work off the main actor when a
+    /// user stops recording or a resource cap auto-stops it.
+    private static nonisolated func closeRecordingSink(_ sink: TerminalRecordingSink) {
+        DispatchQueue.global(qos: .utility).async {
+            sink.close()
+        }
+    }
+
+    /// Single owner of `HarborTerminalView.dataInterceptor`. Recording and TOTP
+    /// both need the one slot, so every attach / detach path comes through here
+    /// instead of overwriting or nil-ing the other feed.
+    private func refreshDataInterceptor() {
+        guard let view = terminalView as? HarborTerminalView else { return }
+        let sink = isRecording ? recordingSink : nil
+        let detector = shouldFeedTOTPDetector ? totpDetector : nil
+        if sink == nil && detector == nil {
+            view.dataInterceptor = nil
+            return
+        }
+        view.dataInterceptor = { [weak sink, weak detector] slice in
+            detector?.feed(slice)
+            sink?.write(slice)
+        }
+    }
+
+    /// Local-shell tabs have no TOTP. SSH tabs only attach the detector when
+    /// a Keychain secret exists for this host — the secret itself is not kept.
+    private var shouldFeedTOTPDetector: Bool {
+        host.connectionProtocol != .local && totpSecretPresent
+    }
+
+    private func installTOTPPromptHandling() {
+        guard host.connectionProtocol != .local else { return }
+        totpSecretPresent = TOTPStore.load(for: host.id) != nil
+        totpDetector.onPromptDetected = { [weak self] in
+            guard let self, self.totpSecretPresent else { return }
+            self.totpPromptVisible = true
+        }
+        refreshDataInterceptor()
+    }
+
+    private func resetTOTPPrompt() {
+        totpDetector.reset()
+        totpPromptVisible = false
     }
 
     /// Backstop for the `.connecting → .running` transition. SwiftTerm's
@@ -577,7 +933,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     private func makeLocalTerminalView(shell: String) -> LocalProcessTerminalView {
         let view = HarborTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        if UserDefaults.standard.object(forKey: "useMetalRenderer") == nil || UserDefaults.standard.bool(forKey: "useMetalRenderer") {
+        if UserDefaults.standard.bool(forKey: "useMetalRenderer") {
             try? view.setUseMetal(true)
         }
         view.processDelegate = self
@@ -595,7 +951,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     private func makeTerminalView() -> LocalProcessTerminalView {
         let view = HarborTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        if UserDefaults.standard.object(forKey: "useMetalRenderer") == nil || UserDefaults.standard.bool(forKey: "useMetalRenderer") {
+        if UserDefaults.standard.bool(forKey: "useMetalRenderer") {
             try? view.setUseMetal(true)
         }
         view.processDelegate = self

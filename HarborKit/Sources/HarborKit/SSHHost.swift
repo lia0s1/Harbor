@@ -17,6 +17,8 @@ public struct SSHHost: Codable, Identifiable, Hashable, Sendable {
     public var username: String
     /// Path to a private key file (`-i`). `~` is allowed; expansion happens at spawn time.
     public var identityFile: String?
+    /// Jump host spec (`-J`), e.g. "admin@bastion:2222" or a comma-separated chain. Empty = none.
+    public var proxyJump: String
     /// Raw extra arguments appended before the destination.
     public var extraArgs: [String]
     public var portForwards: [PortForward]
@@ -46,6 +48,7 @@ public struct SSHHost: Codable, Identifiable, Hashable, Sendable {
         port: Int = SSHHost.defaultPort,
         username: String = "",
         identityFile: String? = nil,
+        proxyJump: String = "",
         extraArgs: [String] = [],
         portForwards: [PortForward] = [],
         tags: [String] = [],
@@ -62,6 +65,7 @@ public struct SSHHost: Codable, Identifiable, Hashable, Sendable {
         self.port = port
         self.username = username
         self.identityFile = identityFile
+        self.proxyJump = proxyJump
         self.extraArgs = extraArgs
         self.portForwards = portForwards
         self.tags = tags
@@ -103,6 +107,7 @@ public struct SSHHost: Codable, Identifiable, Hashable, Sendable {
         port = (try? c.decodeIfPresent(Int.self, forKey: .port)) ?? SSHHost.defaultPort
         username = (try? c.decodeIfPresent(String.self, forKey: .username)) ?? ""
         identityFile = try? c.decodeIfPresent(String.self, forKey: .identityFile)
+        proxyJump = (try? c.decodeIfPresent(String.self, forKey: .proxyJump)) ?? ""
         extraArgs = (try? c.decodeIfPresent([String].self, forKey: .extraArgs)) ?? []
         portForwards = (try? c.decodeIfPresent([PortForward].self, forKey: .portForwards)) ?? []
         tags = (try? c.decodeIfPresent([String].self, forKey: .tags)) ?? []

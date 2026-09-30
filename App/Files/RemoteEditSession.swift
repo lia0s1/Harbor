@@ -202,7 +202,7 @@ final class RemoteEditSession {
         self.onEnd = onEnd
     }
 
-    deinit {
+    isolated deinit {
         timer?.invalidate()
         uploadTask?.cancel()
     }
@@ -214,9 +214,11 @@ final class RemoteEditSession {
     }
 
     /// Owner-initiated stop (the SSH session exited / tab closed): stop syncing
-    /// and clean up. Idempotent.
-    func cancel() {
-        teardown()
+    /// and clean up. Idempotent. `dropBuffers` also deletes the temp working
+    /// copy even if there are unsynced edits — used by `FileService.stop()`
+    /// so a closed tab cannot keep file contents in RAM / on disk.
+    func cancel(dropBuffers: Bool = false) {
+        teardown(dropBuffers: dropBuffers)
     }
 
     private func scheduleTimer(interval: TimeInterval) {
@@ -229,7 +231,7 @@ final class RemoteEditSession {
 
     private func tick() {
         guard FileManager.default.fileExists(atPath: localURL.path) else {
-            teardown()      // temp file gone: nothing left to sync.
+            teardown(dropBuffers: true)      // temp file gone: nothing left to sync.
             onEnd(self)     // let the owner drop its reference.
             return
         }
@@ -297,8 +299,9 @@ final class RemoteEditSession {
     }
 
     /// Stops the timer and removes the whole `harbor-edit-<UUID>/` temp dir.
-    /// Idempotent.
-    private func teardown() {
+    /// Idempotent. `dropBuffers` forces the working copy off disk even when
+    /// there are unsynced local edits (session teardown).
+    private func teardown(dropBuffers: Bool = false) {
         guard !stopped else { return }
         stopped = true
         timer?.invalidate()
@@ -308,7 +311,11 @@ final class RemoteEditSession {
         // dead ControlMaster socket until the 600s timeout.
         uploadTask?.cancel()
         uploadTask = nil
-        if !hasUnsyncedChanges {
+        let shouldRemove = dropBuffers || !hasUnsyncedChanges
+        lastModified = nil
+        hasUnsyncedChanges = false
+        pending = false
+        if shouldRemove {
             try? FileManager.default.removeItem(at: localURL.deletingLastPathComponent())
         }
     }

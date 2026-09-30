@@ -11,18 +11,9 @@ struct QuickHostJumpView: View {
     @State private var query = ""
     @State private var selectedIndex = 0
     @State private var suppressHover = false
+    @State private var cachedMatches: [SSHHost] = []
+    @State private var didConnect = false
     @FocusState private var fieldFocused: Bool
-
-    private var filtered: [SSHHost] {
-        guard !query.isEmpty else { return hostStore.hosts }
-        let q = query.lowercased()
-        return hostStore.hosts.filter {
-            $0.displayName.lowercased().contains(q)
-            || $0.hostname.lowercased().contains(q)
-            || $0.username.lowercased().contains(q)
-            || $0.tags.joined(separator: " ").lowercased().contains(q)
-        }
-    }
 
     var body: some View {
         ZStack {
@@ -41,14 +32,17 @@ struct QuickHostJumpView: View {
                         .font(.title3)
                         .focused($fieldFocused)
                         .onSubmit { connect() }
-                        .onChange(of: query) { _, _ in selectedIndex = 0 }
+                        .onChange(of: query) { _, _ in
+                            selectedIndex = 0
+                            rebuildMatches()
+                        }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
 
                 Divider()
 
-                if filtered.isEmpty {
+                if cachedMatches.isEmpty {
                     Text("没有匹配的主机")
                         .foregroundStyle(.secondary)
                         .font(.callout)
@@ -57,7 +51,7 @@ struct QuickHostJumpView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVStack(spacing: 0) {
-                                ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, host in
+                                ForEach(Array(cachedMatches.enumerated()), id: \.element.id) { idx, host in
                                     QuickJumpRow(host: host, isSelected: idx == selectedIndex)
                                         .id(idx)
                                         .contentShape(Rectangle())
@@ -90,26 +84,50 @@ struct QuickHostJumpView: View {
                 return .handled
             }
             .onKeyPress(.downArrow) {
-                selectedIndex = max(0, min(filtered.count - 1, selectedIndex + 1))
+                selectedIndex = max(0, min(cachedMatches.count - 1, selectedIndex + 1))
                 suppressHover = true
                 Task { try? await Task.sleep(nanoseconds: 300_000_000); suppressHover = false }
                 return .handled
             }
             .onKeyPress(.escape) { dismiss(); return .handled }
         }
-        .onAppear { fieldFocused = true }
+        .onAppear {
+            didConnect = false
+            rebuildMatches()
+            fieldFocused = true
+        }
+        .onChange(of: hostStore.hosts.count) { _, _ in rebuildMatches() }
+    }
+
+    private func rebuildMatches() {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty {
+            cachedMatches = hostStore.hosts
+        } else {
+            cachedMatches = hostStore.hosts.filter {
+                $0.displayName.localizedCaseInsensitiveContains(q)
+                    || $0.hostname.localizedCaseInsensitiveContains(q)
+                    || $0.username.localizedCaseInsensitiveContains(q)
+                    || $0.tags.contains { $0.localizedCaseInsensitiveContains(q) }
+            }
+        }
+        if selectedIndex >= cachedMatches.count {
+            selectedIndex = max(0, cachedMatches.count - 1)
+        }
     }
 
     private func connect() {
-        guard selectedIndex >= 0 && selectedIndex < filtered.count else { dismiss(); return }
-        let host = filtered[selectedIndex]
-        sessionManager.openSession(host: host)
+        guard !didConnect else { return }
+        guard selectedIndex >= 0 && selectedIndex < cachedMatches.count else { dismiss(); return }
+        didConnect = true
+        PendingHostConnect.request(cachedMatches[selectedIndex].id)
         dismiss()
     }
 
     private func dismiss() {
         query = ""
         selectedIndex = 0
+        cachedMatches = []
         isPresented = false
     }
 }

@@ -6,6 +6,7 @@ import HarborKit
 /// way out so no orphans linger.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var sessionManager: SessionManager?
+    private var terminationReplyPending = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Apply the saved window appearance (default 跟随系统) before any
@@ -54,8 +55,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LocalizationManager.shared.refreshForSystemChange()
     }
 
+    /// Delay process exit briefly so sessions have time to escalate from TERM
+    /// to KILL and reap their children. `applicationWillTerminate` is too late
+    /// for that work: once it returns, macOS can tear down the app while a
+    /// remote shell or freerdp is still alive.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationReplyPending else { return .terminateLater }
+        guard let sessionManager else {
+            JSONStorePersistence.flush()
+            return .terminateNow
+        }
+
+        terminationReplyPending = true
+        let finish: () -> Void = { [weak self, weak sender] in
+            DispatchQueue.main.async {
+                guard let self, let sender, self.terminationReplyPending else { return }
+                self.terminationReplyPending = false
+                JSONStorePersistence.flush()
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        sessionManager.terminateAll(completion: finish)
+
+        // The session paths above are bounded (terminal: 1 second; RDP:
+        // 3 seconds). Retain a final guard so an unexpected Process/Foundation
+        // failure cannot make Cmd-Q hang indefinitely.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self, weak sender] in
+            guard let self, let sender, self.terminationReplyPending else { return }
+            self.terminationReplyPending = false
+            JSONStorePersistence.flush()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
-        sessionManager?.terminateAll()
         JSONStorePersistence.flush()
     }
 }
@@ -124,17 +158,30 @@ struct HarborApp: App {
                 Button(L("从 ~/.ssh/config 导入…")) {
                     NotificationCenter.default.post(name: .harborImportConfig, object: nil)
                 }
+                Divider()
+                Button(L("导出主机…")) {
+                    NotificationCenter.default.post(name: .harborExportHosts, object: nil)
+                }
+                Button(L("导入主机…")) {
+                    NotificationCenter.default.post(name: .harborImportHosts, object: nil)
+                }
             }
             CommandMenu(L("密钥")) {
                 Button(L("复制 SSH 公钥…")) {
                     copySSHPublicKey()
+                }
+                Divider()
+                Button(L("密钥管理…")) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openSystemSettings()
                 }
             }
             CommandMenu(L("工具")) {
                 Button(L("脚本库")) {
                     NotificationCenter.default.post(name: .harborScriptLibrary, object: nil)
                 }
-                .keyboardShortcut("l", modifiers: [.command, .shift])
+                // ⌘⇧S (not ⌘⇧L, which is the 命令输入栏 toggle below).
+                .keyboardShortcut("s", modifiers: [.command, .shift])
                 Button(L("录制回放")) {
                     NotificationCenter.default.post(name: .harborRecordingPlayer, object: nil)
                 }
@@ -203,6 +250,15 @@ struct HarborApp: App {
         ])
     }
 
+    /// Opens the SwiftUI Settings scene. It exposes no public programmatic
+    /// open API, so this goes through the standard private selector (renamed
+    /// from showPreferencesWindow: in macOS 13).
+    private func openSystemSettings() {
+        let selector = Selector(("showSettingsWindow:"))
+        guard NSApp.responds(to: selector) else { return }
+        _ = NSApp.perform(selector, with: nil)
+    }
+
     /// Opens an NSOpenPanel scoped to ~/.ssh to let the user pick a .pub file,
     /// then copies its contents to the clipboard.
     private func copySSHPublicKey() {
@@ -241,10 +297,11 @@ struct SessionCommands: Commands {
         CommandGroup(replacing: .saveItem) {
             Button(closeTitle) {
                 let keyWindow = NSApp.keyWindow
-                // Only close the tab when the main window (or nothing) has key
-                // focus; for auxiliary windows (Settings) close that window.
+                // Close the tab only when the main window actually has key
+                // focus. With no key window at all (menu-bar-only mode) a
+                // hidden window's session must not be terminated invisibly.
                 if let session = sessionManager.selectedSession,
-                   keyWindow == nil || keyWindow === NSApp.mainWindow {
+                   keyWindow === NSApp.mainWindow {
                     sessionManager.close(session)
                 } else {
                     keyWindow?.performClose(nil)
@@ -281,6 +338,28 @@ struct SessionCommands: Commands {
                 NotificationCenter.default.post(name: .harborToggleRecording, object: nil)
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(sessionManager.selectedSession == nil)
+        }
+
+        // View menu: terminal font zoom. Writes the same UserDefaults key the
+        // settings pane reads, so every open terminal follows via @AppStorage.
+        CommandGroup(after: .sidebar) {
+            Button(L("放大")) {
+                sessionManager.selectedSession?.terminalView.zoomIn()
+            }
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(sessionManager.selectedSession == nil)
+
+            Button(L("缩小")) {
+                sessionManager.selectedSession?.terminalView.zoomOut()
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(sessionManager.selectedSession == nil)
+
+            Button(L("重置缩放")) {
+                sessionManager.selectedSession?.terminalView.resetFontSize()
+            }
+            .keyboardShortcut("0", modifiers: .command)
             .disabled(sessionManager.selectedSession == nil)
         }
 
@@ -397,6 +476,8 @@ extension Notification.Name {
     static let harborExportHosts = Notification.Name("dev.zero.Harbor.exportHosts")
     /// Posted by File > 导入主机…; handled by ContentView.
     static let harborImportHosts = Notification.Name("dev.zero.Harbor.importHosts")
+    /// Posted by menu bar / jump / recents; HostListView runs the shared connect path.
+    static let harborConnectHost = Notification.Name("dev.zero.Harbor.connectHost")
     static let harborQuickJump = Notification.Name("dev.zero.Harbor.quickJump")
     static let harborLocalTerminal = Notification.Name("dev.zero.Harbor.localTerminal")
     static let harborBatchExec = Notification.Name("dev.zero.Harbor.batchExec")

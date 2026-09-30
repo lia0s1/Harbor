@@ -128,6 +128,10 @@ final class MonitorService: ObservableObject {
     /// the UI after it is shown. Low frequency, so a standalone `@Published`.
     @Published var lastActionError: String?
 
+    /// PIDs with an in-flight `kill`. UI disables those rows so a double tap
+    /// cannot fire a second signal against a stale confirmation target.
+    @Published private(set) var terminatingPIDs: Set<Int32> = []
+
     private let exec: RemoteExec
     /// Shared connect-time socket gate (one `ssh -O check` loop for all of this
     /// session's services, instead of each polling its own).
@@ -135,6 +139,9 @@ final class MonitorService: ObservableObject {
 
     private var loopTask: Task<Void, Never>?
     private var isTicking = false
+    /// Bumped by start()/stop() so a kill that outlives the loop cannot
+    /// ingest a snapshot back into a stopped session.
+    private var runID = 0
     private var socketVerified = false
     /// True once monitoring has been `.active` at least once this run. After
     /// that, a failing socket check is a real disconnect (escalate to
@@ -151,7 +158,7 @@ final class MonitorService: ObservableObject {
     private static let sampleInterval: TimeInterval = 2
     private static let retryInterval: TimeInterval = 15
     private static let failureThreshold = 3
-    private static let commandTimeout: TimeInterval = 5
+    private static let commandTimeout: TimeInterval = 12
     private static let socketWaitDeadline: TimeInterval = 600
     /// A sustained condition is re-notified at most once in this interval.
     /// This is shared by sessions so two tabs to the same target do not emit
@@ -174,9 +181,15 @@ final class MonitorService: ObservableObject {
     /// next one. Call again only after `stop()`.
     func start() {
         guard loopTask == nil, !exec.destination.isEmpty else { return }
-        status = .checking
+        runID += 1
         consecutiveFailures = 0
-        socketVerified = false
+        // Resume after a tab-switch pause: keep the last frame on screen.
+        // Only a true cold start / error retry goes back to the spinner.
+        let resuming = status == .active
+        if !resuming {
+            status = .checking
+            socketVerified = false
+        }
         loopTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.initialDelay * 1_000_000_000))
             // Share the connect-time `ssh -O check` poll with the file/info
@@ -195,7 +208,13 @@ final class MonitorService: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 let delay = await self.tick()
-                guard delay > 0 else { return } // unsupported OS: park until restart
+                guard delay > 0 else {
+                    // Unsupported OS (or cancelled): the loop parked itself.
+                    // Nil the task so a later start() after reconnect isn't
+                    // refused by the `loopTask == nil` guard.
+                    self.loopTask = nil
+                    return
+                }
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
         }
@@ -203,7 +222,18 @@ final class MonitorService: ObservableObject {
 
     /// Stops polling. The in-flight auxiliary ssh (if any) is terminated via
     /// task cancellation; the watchdog reaps stragglers within seconds.
+    /// Stop polling but keep the last snapshot. Used for tab switches so the
+    /// data pane does not blank out and come back as a spinner.
+    func pause() {
+        guard loopTask != nil else { return }
+        runID += 1
+        loopTask?.cancel()
+        loopTask = nil
+    }
+
     func stop() {
+        guard loopTask != nil || status != .idle else { return }
+        runID += 1
         loopTask?.cancel()
         loopTask = nil
         status = .idle
@@ -212,13 +242,17 @@ final class MonitorService: ObservableObject {
         consecutiveFailures = 0
         // Forget delta-computation state so the first tick after resuming
         // doesn't derive a bogus CPU/network spike from a stale baseline.
-        // Frame data is intentionally kept: the panel shows the last-known
-        // stats instantly on tab switch instead of a spinner.
+        // Drop series/process tables too: hidden or background sessions must
+        // not keep minutes of samples in RAM.
         previousTicks = nil
         previousPerCore = []
         previousNet = nil
         previousDisk = nil
         activeAlerts = []
+        frame = Frame()
+        selectedInterface = nil
+        lastActionError = nil
+        terminatingPIDs = []
     }
 
     // MARK: - Sampling
@@ -238,7 +272,7 @@ final class MonitorService: ObservableObject {
                 // reverted to `.checking` and early-returned, so a once-live but
                 // now-dead socket spun on the spinner forever and never surfaced
                 // the error.
-                if everActive { return registerFailure(L("监控连接已断开")) }
+                if everActive { return registerFailure(L("监控连接已断开"), resetReadiness: true) }
                 // First connect: the mux socket only appears AFTER auth succeeds
                 // (for a password/2FA host, after the user finishes typing). Keep
                 // the fast 2s poll and show .checking so stats appear within ~2s.
@@ -256,15 +290,22 @@ final class MonitorService: ObservableObject {
         let result = await exec.run(MonitorParsers.remoteScript, timeout: Self.commandTimeout)
         if Task.isCancelled { return 0 }
         guard !result.timedOut, result.exitCode == 0 else {
-            return registerFailure(L("监控命令执行失败"))
+            return registerFailure(L("监控命令执行失败"), resetReadiness: false)
         }
 
-        let snap = MonitorParsers.parseSnapshot(result.stdoutText)
+        var snap = MonitorParsers.parseSnapshot(result.stdoutText)
+        // Container/merged hosts can report ONLY an overlay root, which the
+        // shared pseudo-mount filter drops — fall back to those rows (labeled
+        // 容器 overlay in the UI) instead of showing 暂无磁盘数据 forever.
+        if snap.disks.isEmpty {
+            snap.disks = MonitorParsers.parseContainerOverlayDisks(fromPayload: result.stdoutText)
+        }
         guard snap.isLinux else {
             status = .unsupported(os: snap.os.isEmpty ? L("未知") : snap.os)
             return 0
         }
 
+        if Task.isCancelled { return 0 }
         ingest(snap)
         consecutiveFailures = 0
         if status != .active { status = .active }
@@ -272,15 +313,16 @@ final class MonitorService: ObservableObject {
         return Self.sampleInterval
     }
 
-    private func registerFailure(_ reason: String) -> TimeInterval {
+    private func registerFailure(_ reason: String, resetReadiness: Bool = false) -> TimeInterval {
         consecutiveFailures += 1
         if consecutiveFailures >= Self.failureThreshold {
             status = .unavailable(reason: reason)
             socketVerified = false
-            // Reset the shared gate so FileService / DockerService re-verify
-            // the socket on their next waitUntilReady call, instead of
-            // trusting a stale "ready" latch on a dead connection.
-            readiness.reset()
+            // Only a dead ControlMaster should poison the shared latch.
+            // A slow /proc sample must not kick the file panel offline.
+            if resetReadiness {
+                readiness.reset()
+            }
             return Self.retryInterval
         }
         return Self.sampleInterval
@@ -308,11 +350,14 @@ final class MonitorService: ObservableObject {
             lastActionError = L("无效的进程 ID")
             return false
         }
+        guard terminatingPIDs.insert(pid).inserted else { return false }
+        let started = runID
+        defer { terminatingPIDs.remove(pid) }
         // pid is a validated Int32; signal.rawValue is "TERM"/"KILL" — both
         // safe to interpolate into the single remote command string.
         let script = "kill -\(signal.rawValue) \(pid)"
         let result = await exec.run(script, timeout: Self.commandTimeout)
-        if Task.isCancelled { return false }
+        if Task.isCancelled || started != runID { return false }
         guard !result.timedOut, result.exitCode == 0 else {
             // Prefer the remote stderr (e.g. "No such process", "Operation not
             // permitted") when present; fall back to a generic message.
@@ -326,11 +371,16 @@ final class MonitorService: ObservableObject {
         // direct sample (bypassing `isTicking`) so it never no-ops when the
         // loop's tick is concurrently suspended inside its own `exec.run`.
         let refreshResult = await exec.run(MonitorParsers.remoteScript, timeout: Self.commandTimeout)
+        if started != runID || Task.isCancelled { return true }
         if !refreshResult.timedOut, refreshResult.exitCode == 0 {
             let snap = MonitorParsers.parseSnapshot(refreshResult.stdoutText)
             if snap.isLinux { ingest(snap) }
         }
         return true
+    }
+
+    func isTerminating(_ pid: Int) -> Bool {
+        pid > 0 && terminatingPIDs.contains(Int32(pid))
     }
 
     /// Fetches rich detail for one process on demand (the 进程详情 inspector):

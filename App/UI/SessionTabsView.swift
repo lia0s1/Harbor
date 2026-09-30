@@ -102,7 +102,9 @@ struct SessionTabsView: View {
                                 let others = sessionManager.sessions.filter { $0.id != session.id }
                                 others.forEach { sessionManager.close($0) }
                             },
-                            onDuplicate: { sessionManager.clone(session) }
+                            canCloseOthers: sessionManager.sessions.count > 1,
+                            onDuplicate: { sessionManager.clone(session) },
+                            onReconnect: { sessionManager.reconnect(session) }
                         )
                     }
                     GlassEffectContainer { newTabMenu }
@@ -211,7 +213,9 @@ struct SessionTabItem: View {
     let onSelect: () -> Void
     let onClose: () -> Void
     let onCloseOthers: () -> Void
+    var canCloseOthers = true
     let onDuplicate: () -> Void
+    let onReconnect: () -> Void
 
     @State private var isHovering = false
     @State private var title = ""
@@ -266,8 +270,11 @@ struct SessionTabItem: View {
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
         .contextMenu {
+            Button("重新连接") { onReconnect() }
+            Divider()
             Button("关闭标签页") { onClose() }
             Button("关闭其他标签页") { onCloseOthers() }
+                .disabled(!canCloseOthers)
             Divider()
             Button("复制标签页") { onDuplicate() }
             Divider()
@@ -359,9 +366,32 @@ struct SessionTerminalPane: View {
 
     @State private var sessionState: TerminalSession.State = .connecting
     @State private var autoReconnectAttempt = 0
+    @State private var totpPromptVisible = false
+    /// Loaded only while the banner is up; never kept on the session.
+    @State private var totpSecret: String?
 
     var body: some View {
         VStack(spacing: 0) {
+            if isSelected,
+               totpPromptVisible,
+               session.host.connectionProtocol != .local,
+               let secret = totpSecret {
+                TOTPAutoFillBanner(
+                    secret: secret,
+                    onSend: { code in
+                        guard !code.isEmpty else { return }
+                        session.sendTOTPCode(code)
+                    },
+                    onDismiss: {
+                        totpSecret = nil
+                        totpPromptVisible = false
+                        session.dismissTOTPPrompt()
+                    }
+                )
+                .padding(.horizontal, DS.Space.m)
+                .padding(.top, DS.Space.s)
+                .padding(.bottom, DS.Space.xs)
+            }
             TerminalHostingView(session: session, isSelected: isSelected)
             if case .exited(let code) = sessionState {
                 exitedBanner(code: code)
@@ -370,9 +400,29 @@ struct SessionTerminalPane: View {
         .onAppear {
             sessionState = session.state
             autoReconnectAttempt = session.autoReconnectAttempt
+            syncTOTPBanner(visible: session.totpPromptVisible)
         }
         .onReceive(session.$state) { sessionState = $0 }
         .onReceive(session.$autoReconnectAttempt) { autoReconnectAttempt = $0 }
+        .onReceive(session.$totpPromptVisible) { syncTOTPBanner(visible: $0) }
+    }
+
+    private func syncTOTPBanner(visible: Bool) {
+        guard session.host.connectionProtocol != .local else {
+            totpPromptVisible = false
+            totpSecret = nil
+            return
+        }
+        if visible, let secret = TOTPStore.load(for: session.host.id) {
+            totpSecret = secret
+            totpPromptVisible = true
+        } else {
+            totpSecret = nil
+            totpPromptVisible = false
+            if visible {
+                session.dismissTOTPPrompt()
+            }
+        }
     }
 
     private func exitedBanner(code: Int32?) -> some View {

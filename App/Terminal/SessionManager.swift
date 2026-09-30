@@ -111,9 +111,27 @@ final class SessionManager: ObservableObject {
     /// this SessionManager instance, making it mockable and testable.
     private let rdpService = RDPService()
 
+    /// Last applied panel visibility. `UserDefaults.didChangeNotification` is
+    /// too coarse — theme/font/history writes would restart file + monitor
+    /// services and look like the panels "dropped".
+    private var lastFilePanelVisible: Bool?
+    private var lastMonitorPanelVisible: Bool?
+
     init() {
         let stored = UserDefaults.standard.stringArray(forKey: SessionManager.recentHostsKey) ?? []
         recentHostIDs = stored.compactMap(UUID.init(uuidString:))
+        lastFilePanelVisible = Self.isFilePanelVisible
+        lastMonitorPanelVisible = Self.isMonitorPanelVisible
+    }
+
+    /// Called from ContentView when the user toggles the file or monitor pane.
+    func setPanelVisibility(fileVisible: Bool, monitorVisible: Bool) {
+        let fileChanged = lastFilePanelVisible != fileVisible
+        let monitorChanged = lastMonitorPanelVisible != monitorVisible
+        guard fileChanged || monitorChanged else { return }
+        lastFilePanelVisible = fileVisible
+        lastMonitorPanelVisible = monitorVisible
+        refreshActiveMonitoring()
     }
 
     var selectedSession: TerminalSession? {
@@ -131,6 +149,8 @@ final class SessionManager: ObservableObject {
             // own mux master and closing one tab never disconnects siblings.
             let usedSockets = Set(sessions.map(\.controlSocketPath))
             let session = try TerminalSession(host: host, avoidingControlSocketPaths: usedSockets)
+            // Reconnect re-resolves the saved host so later edits apply.
+            session.hostProvider = { [weak self] in self?.hostStore.host(withID: host.id) }
             sessions.append(session)
             attachServices(to: session)
             selectedSessionID = session.id
@@ -326,13 +346,14 @@ final class SessionManager: ObservableObject {
         // terminal output no longer re-renders the whole window.)
         objectWillChange.send()
 
-        // The file service follows pure session lifecycle (it is cheap when
-        // idle and the panel for a background tab stays mounted-but-hidden).
+        // File/docker browsers start only when the bottom panel is visible.
+        // Hidden panels must not keep listings, trees, or docker JSON in RAM.
         switch state {
         case .connecting:
             break
         case .running:
-            services[sessionID]?.files?.start()
+            // File/monitor start is centralized in refreshActiveMonitoring()
+            // so a background tab coming online does not start then immediately stop.
             // Don't trust the optimistic 0.8s running-fallback as a real connect.
             // Arm a stability confirm: only if the session is STILL running after
             // `stableConfirmDelay` do we mark it reconnect-eligible and clear the
@@ -413,18 +434,49 @@ final class SessionManager: ObservableObject {
     /// Runs monitor + ping for the selected running session only; pauses them
     /// for every other session. Idempotent (start/stop are guarded), so it is
     /// safe to call on every selection or state change.
+    private static var isMonitorPanelVisible: Bool {
+        if UserDefaults.standard.object(forKey: MonitorPanelPreference.storageKey) == nil {
+            return MonitorPanelPreference.defaultVisible
+        }
+        return UserDefaults.standard.bool(forKey: MonitorPanelPreference.storageKey)
+    }
+
+    private static var isFilePanelVisible: Bool {
+        if UserDefaults.standard.object(forKey: FilePanelPreference.storageKey) == nil {
+            return FilePanelPreference.defaultVisible
+        }
+        return UserDefaults.standard.bool(forKey: FilePanelPreference.storageKey)
+    }
+
     private func refreshActiveMonitoring() {
+        let monitorVisible = lastMonitorPanelVisible ?? Self.isMonitorPanelVisible
+        let fileVisible = lastFilePanelVisible ?? Self.isFilePanelVisible
         for session in sessions {
-            let shouldRun = session.id == selectedSessionID && session.state == .running
-            if shouldRun {
-                services[session.id]?.monitor?.start()
+            let selectedRunning = session.id == selectedSessionID && session.state == .running
+            if selectedRunning {
+                // Ping follows the selected session even when the monitor rail
+                // is closed: the status-bar latency readout must stay alive.
                 services[session.id]?.ping?.start()
-                // Prefetch the 系统信息 report in the background so opening it is
-                // instant (it patiently waits for the socket on its own).
-                systemInfo(for: session).fetchIfNeeded()
+                if monitorVisible {
+                    services[session.id]?.monitor?.start()
+                    systemInfo(for: session).fetchIfNeeded()
+                } else {
+                    services[session.id]?.monitor?.pause()
+                }
             } else {
-                services[session.id]?.monitor?.stop()
-                services[session.id]?.ping?.stop()
+                // Pause, don't teardown: tab switch must not wipe the last
+                // sample and flash the empty/checking cards.
+                services[session.id]?.monitor?.pause()
+                services[session.id]?.ping?.pause()
+            }
+            // Keep file/docker browsers warm for every live session while the
+            // bottom panel is open. Stopping them on tab switch is what made
+            // the file pane look like it "dropped" every time.
+            if session.state == .running && fileVisible {
+                services[session.id]?.files?.start()
+            } else if session.state != .running || !fileVisible {
+                services[session.id]?.files?.stop()
+                services[session.id]?.docker?.stop()
             }
         }
     }
@@ -508,12 +560,32 @@ final class SessionManager: ObservableObject {
 
     /// Called on app termination so no orphaned ssh/ping processes linger
     /// (spawned children are NOT killed automatically when the app exits).
-    func terminateAll() {
-        for session in sessions {
-            detachServices(for: session.id)
-            session.terminate()
+    /// Completion runs once every direct terminal/RDP child has exited or been
+    /// reaped after its bounded TERM → KILL escalation.
+    func terminateAll(completion: @escaping @Sendable () -> Void = {}) {
+        let sessionsToTerminate = sessions
+        let rdpConnectionsToTerminate = Array(rdpConnections.values)
+        let cleanupCount = sessionsToTerminate.count + rdpConnectionsToTerminate.count
+        guard cleanupCount > 0 else {
+            completion()
+            return
         }
-        for conn in rdpConnections.values { conn.disconnect() }
+
+        let cleanupGroup = DispatchGroup()
+        for session in sessionsToTerminate {
+            detachServices(for: session.id)
+            cleanupGroup.enter()
+            session.terminate {
+                cleanupGroup.leave()
+            }
+        }
+        for conn in rdpConnectionsToTerminate {
+            cleanupGroup.enter()
+            conn.disconnect {
+                cleanupGroup.leave()
+            }
+        }
         rdpConnections.removeAll()
+        cleanupGroup.notify(queue: .global(qos: .utility), execute: completion)
     }
 }

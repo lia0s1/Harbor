@@ -118,7 +118,7 @@ struct RemoteFilePaneHeader: View {
 
     @ViewBuilder
     private var refreshControl: some View {
-        if service.isLoading || service.isMutating {
+        if service.isLoading {
             ProgressView()
                 .controlSize(.small)
                 .scaleEffect(0.6)

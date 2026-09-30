@@ -35,6 +35,13 @@ struct ForwardingDetailView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                     Spacer(minLength: 0)
+                    Button { service.lastError = nil } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("关闭"))
                 }
             }
             if showingDraft {
@@ -107,8 +114,7 @@ struct ForwardRow: View {
     /// Ad-hoc forwards show a trash button and can be removed from the live session.
     var isAdHoc: Bool = false
 
-    /// True while this row's toggle action is in flight (prevents double-tap).
-    @State private var pending = false
+    private var pending: Bool { service.isPending(forward.id) }
 
     private var isEnabled: Bool {
         service.enabled[forward.id] == true
@@ -116,23 +122,17 @@ struct ForwardRow: View {
 
     private func toggleEnabled() {
         guard !pending else { return }
-        pending = true
         Task {
-            let ok: Bool
             if isEnabled {
-                ok = await service.disableForward(forward)
+                _ = await service.disableForward(forward)
             } else {
-                ok = await service.enableForward(forward)
+                _ = await service.enableForward(forward)
             }
-            // Pending clears regardless; the service publishes the new state.
-            pending = ok ? false
-                : await { try? await Task.sleep(nanoseconds: 300_000_000); return false }()
         }
     }
 
     private func removeAdHoc() {
         guard !pending else { return }
-        pending = true
         Task { await service.removeAdHocForward(forward) }
     }
 
@@ -185,6 +185,7 @@ struct ForwardRow: View {
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .disabled(pending)
                 .accessibilityLabel(isEnabled ? L("禁用端口转发 \(forward.bindPort)") : L("启用端口转发 \(forward.bindPort)"))
             }
         }

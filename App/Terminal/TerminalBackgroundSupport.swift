@@ -207,6 +207,8 @@ final class TerminalContainerView: NSView {
     private func removeImage() {
         imageView?.removeFromSuperview()
         imageView = nil
+        cachedImage = nil
+        cachedImagePath = nil
     }
 
     /// Load an image from a path, returning nil if the file is missing or not a
@@ -221,9 +223,32 @@ final class TerminalContainerView: NSView {
             return nil
         }
         if path == cachedImagePath, let cachedImage { return cachedImage }
-        let image = NSImage(contentsOfFile: path)
-        cachedImagePath = image == nil ? nil : path
+        guard let loaded = NSImage(contentsOfFile: path) else {
+            cachedImagePath = nil
+            cachedImage = nil
+            return nil
+        }
+        let image = Self.downsampled(loaded, maxEdge: 2560)
+        cachedImagePath = path
         cachedImage = image
         return image
+    }
+
+    /// Wallpapers can be 8K photos. Keep a display-sized copy so every
+    /// terminal tab is not holding an uncompressed 50 MP bitmap.
+    private static func downsampled(_ image: NSImage, maxEdge: CGFloat) -> NSImage {
+        let size = image.size
+        let longest = max(size.width, size.height)
+        guard longest > maxEdge, longest > 0 else { return image }
+        let scale = maxEdge / longest
+        let target = NSSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        let scaled = NSImage(size: target)
+        scaled.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: target),
+                   from: NSRect(origin: .zero, size: size),
+                   operation: .copy,
+                   fraction: 1)
+        scaled.unlockFocus()
+        return scaled
     }
 }

@@ -1,6 +1,24 @@
 import SwiftUI
 import HarborKit
 
+/// One-shot connect request for chrome that is not the sidebar itself
+/// (menu bar, ⌘P jump, empty-state recents). HostListView owns the RDP
+/// password sheet, so everyone else just posts a host id here.
+@MainActor
+enum PendingHostConnect {
+    private static var hostID: UUID?
+
+    static func request(_ id: UUID) {
+        hostID = id
+        NotificationCenter.default.post(name: .harborConnectHost, object: id)
+    }
+
+    static func take() -> UUID? {
+        defer { hostID = nil }
+        return hostID
+    }
+}
+
 /// Sidebar: searchable host list grouped into sections by tag ("未分组"
 /// last; a host with N tags appears in N sections), full context menus,
 /// add/edit sheets, import from ~/.ssh/config, and a quick-connect footer.
@@ -18,8 +36,11 @@ struct HostListView: View {
     @State private var rdpPasswordHost: SSHHost?
     @State private var rdpPasswordText = ""
     @State private var rdpNoFreerdp = false
+    @State private var rdpAlreadyRunning = false
     @State private var cachedSections: [HostSection] = []
     @State private var cachedLiveHostIDs: Set<UUID> = []
+    @State private var cachedMatchCount = 0
+    @State private var isImporting = false
 
     /// Drag-to-reorder is only meaningful when there is a single flat section
     /// and no active search filter, so section-relative indices map 1-to-1
@@ -67,11 +88,24 @@ struct HostListView: View {
             connect(host)
             return .handled
         }
-        .overlay { emptyOverlay(filtered: cachedSections.flatMap(\.hosts)) }
-        .onAppear { rebuildSections(); rebuildLiveIDs() }
+        .overlay { emptyOverlay }
+        .onAppear {
+            rebuildSections()
+            rebuildLiveIDs()
+            consumePendingConnect()
+        }
         .onChange(of: searchText) { _, _ in rebuildSections() }
-        .onChange(of: hostStore.hosts) { _, _ in rebuildSections() }
-        .onChange(of: sessionManager.sessions) { _, _ in rebuildLiveIDs() }
+        .onReceive(hostStore.objectWillChange) { _ in
+            // Rebuild after the published mutation lands, without snapshotting
+            // the whole host array for Equatable comparison.
+            DispatchQueue.main.async { rebuildSections() }
+        }
+        .onReceive(sessionManager.objectWillChange) { _ in
+            DispatchQueue.main.async { rebuildLiveIDs() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .harborConnectHost)) { _ in
+            consumePendingConnect()
+        }
     }
 
     var body: some View {
@@ -156,6 +190,11 @@ struct HostListView: View {
         } message: {
             Text(L("连接 Windows 远程桌面需要 freerdp。\n在终端运行：brew install freerdp"))
         }
+        .alert(L("RDP 会话已在运行"), isPresented: $rdpAlreadyRunning) {
+            Button(L("好"), role: .cancel) {}
+        } message: {
+            Text(L("该主机的远程桌面已经连接，重复点击不会新建连接。"))
+        }
         .onReceive(NotificationCenter.default.publisher(for: .harborNewHost)) { _ in
             isAddingHost = true
         }
@@ -199,7 +238,7 @@ struct HostListView: View {
             }
         } else {
             Button(L("连接")) { connect(host) }
-            Button(L("在新标签页中连接")) { connectInNewTab(host) }
+            Button(L("复制 SSH 命令")) { copySSHCommand(host) }
         }
         Divider()
         Button(L("编辑…")) { editingHost = host }
@@ -219,8 +258,31 @@ struct HostListView: View {
     }
 
     private func rebuildSections() {
-        let filtered = filteredHosts
-        cachedSections = groupedSections(from: filtered)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if query.isEmpty {
+            cachedMatchCount = hostStore.hosts.count
+            cachedSections = groupedSections(from: hostStore.hosts)
+            return
+        }
+        var matched: [SSHHost] = []
+        for host in hostStore.hosts where hostMatches(host, query: query) {
+            matched.append(host)
+        }
+        cachedMatchCount = matched.count
+        cachedSections = groupedSections(from: matched)
+    }
+
+    private func hostMatches(_ host: SSHHost, query: String) -> Bool {
+        if host.name.localizedCaseInsensitiveContains(query) { return true }
+        if host.hostname.localizedCaseInsensitiveContains(query) { return true }
+        if host.username.localizedCaseInsensitiveContains(query) { return true }
+        return host.tags.contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    private func consumePendingConnect() {
+        guard let id = PendingHostConnect.take(),
+              let host = hostStore.host(withID: id) else { return }
+        connect(host)
     }
 
     private func rebuildLiveIDs() {
@@ -263,20 +325,8 @@ struct HostListView: View {
         return result
     }
 
-    /// Search across name, hostname, username, and tags.
-    private var filteredHosts: [SSHHost] {
-        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return hostStore.hosts }
-        return hostStore.hosts.filter { host in
-            host.name.lowercased().contains(query)
-                || host.hostname.lowercased().contains(query)
-                || host.username.lowercased().contains(query)
-                || host.tags.contains { $0.lowercased().contains(query) }
-        }
-    }
-
     @ViewBuilder
-    private func emptyOverlay(filtered: [SSHHost]) -> some View {
+    private var emptyOverlay: some View {
         if hostStore.hosts.isEmpty {
             ContentUnavailableView {
                 Label("暂无主机", systemImage: "server.rack")
@@ -288,9 +338,10 @@ struct HostListView: View {
                 VStack(spacing: DS.Space.s) {
                     Button("添加主机…") { isAddingHost = true }
                     Button("从 ~/.ssh/config 导入…") { importFromSSHConfig() }
+                        .disabled(isImporting)
                 }
             }
-        } else if filtered.isEmpty {
+        } else if cachedMatchCount == 0 {
             ContentUnavailableView.search(text: searchText)
         }
     }
@@ -325,11 +376,17 @@ struct HostListView: View {
 
     // MARK: - Actions
 
-    /// "连接": focus an existing live session for this host, else open one.
-    /// For RDP hosts, shows password prompt then launches freerdp.
+    /// "连接" (double-click / Enter / context menu): ALWAYS opens a fresh
+    /// session tab — clicking connect means connect (Xshell/SecureCRT
+    /// behavior); the new tab itself is the visible feedback. For RDP hosts,
+    /// shows the password prompt then launches freerdp; a second connect on a
+    /// running RDP host surfaces a notice instead of doing nothing.
     private func connect(_ host: SSHHost) {
         if host.connectionProtocol == .rdp {
-            if let conn = sessionManager.rdpConnection(for: host), conn.isRunning { return }
+            if sessionManager.rdpConnection(for: host)?.isRunning == true {
+                rdpAlreadyRunning = true
+                return
+            }
             guard RDPService.isFreerdpInstalled else {
                 rdpNoFreerdp = true
                 return
@@ -337,20 +394,19 @@ struct HostListView: View {
             rdpPasswordText = ""
             rdpPasswordHost = host
         } else {
-            if let existing = sessionManager.sessions.first(where: {
-                $0.host.id == host.id && !$0.state.isExited
-            }) {
-                sessionManager.selectedSessionID = existing.id
-            } else {
-                sessionManager.openSession(host: host)
-            }
+            sessionManager.openSession(host: host)
         }
     }
 
-    /// "在新标签页中连接": always a fresh SSH session (not applicable to RDP).
-    private func connectInNewTab(_ host: SSHHost) {
-        guard host.connectionProtocol == .ssh else { return }
-        sessionManager.openSession(host: host)
+    /// Copies a ready-to-paste `ssh user@host -p port` using the same
+    /// destination shape SSHCommandBuilder dials; -p omitted on default port.
+    private func copySSHCommand(_ host: SSHHost) {
+        var command = "ssh \(SSHCommandBuilder.destination(for: host))"
+        if host.port != SSHHost.defaultPort {
+            command += " -p \(host.port)"
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
     }
 
     // MARK: - Import from ~/.ssh/config
@@ -358,6 +414,7 @@ struct HostListView: View {
     private enum ImportOutcome {
         case noConfig
         case unreadable(String)
+        case unsupportedConfiguration([String])
         case done(imported: Int, skipped: Int)
 
         @MainActor
@@ -365,6 +422,7 @@ struct HostListView: View {
             switch self {
             case .noConfig: return L("未找到 SSH 配置")
             case .unreadable: return L("无法读取 SSH 配置")
+            case .unsupportedConfiguration: return L("SSH 配置包含未保留的策略")
             case .done: return L("导入完成")
             }
         }
@@ -376,6 +434,11 @@ struct HostListView: View {
                 return L("~/.ssh/config 不存在，没有可导入的内容。你仍然可以用 + 按钮手动添加主机。")
             case .unreadable(let reason):
                 return reason
+            case .unsupportedConfiguration(let directives):
+                return L(
+                    "为避免丢失跳板或主机密钥策略，Harbor 未导入此配置。未支持的指令：%@。请使用原始 SSH 别名连接，或先移除这些指令后再导入。",
+                    directives.joined(separator: ", ")
+                )
             case .done(let imported, let skipped):
                 switch (imported, skipped) {
                 case (0, 0):
@@ -393,20 +456,28 @@ struct HostListView: View {
 
     private enum SSHConfigLoadResult: Sendable {
         case loaded([SSHHost])
+        case unsupportedConfiguration([String])
         case unreadable(String)
     }
 
     private func importFromSSHConfig() {
+        guard !isImporting else { return }
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".ssh/config")
         guard FileManager.default.fileExists(atPath: url.path) else {
             importOutcome = .noConfig
             return
         }
+        isImporting = true
         Task {
+            defer { isImporting = false }
             let loaded = await Task.detached(priority: .userInitiated) {
                 do {
                     let text = try String(contentsOf: url, encoding: .utf8)
+                    let unsupported = SSHConfigParser.unsupportedConnectionDirectives(in: text)
+                    guard unsupported.isEmpty else {
+                        return SSHConfigLoadResult.unsupportedConfiguration(unsupported)
+                    }
                     return SSHConfigLoadResult.loaded(SSHConfigParser.parse(text))
                 } catch {
                     return SSHConfigLoadResult.unreadable(error.localizedDescription)
@@ -416,6 +487,8 @@ struct HostListView: View {
             case .loaded(let parsed):
                 let result = hostStore.importHosts(parsed)
                 importOutcome = .done(imported: result.imported, skipped: result.skipped)
+            case .unsupportedConfiguration(let directives):
+                importOutcome = .unsupportedConfiguration(directives)
             case .unreadable(let reason):
                 importOutcome = .unreadable(reason)
             }
@@ -425,7 +498,7 @@ struct HostListView: View {
 
 /// One sidebar row: colored avatar, name, mono user@host subtitle, and a
 /// status dot (green = SSH live, blue = RDP running, red = RDP error).
-struct HostRowView: View {
+struct HostRowView: View, Equatable {
     let host: SSHHost
     var isLive: Bool = false
     var rdpRunning: Bool = false

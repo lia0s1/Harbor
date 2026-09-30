@@ -69,8 +69,10 @@ open Harbor.xcodeproj
 ### 测试
 
 ```sh
-cd HarborKit
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path HarborKit
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path HarborMCP
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  env -u SWIFTTERM_INCLUDE_DEVELOPMENT_TARGETS swift test --package-path SwiftTerm-local
 ```
 
 完整的构建、公证和安装流程见 [安全与发布说明](docs/security-and-release.md)，日常操作说明见 [工作流文档](docs/workflows.md)。
@@ -109,8 +111,10 @@ open Harbor.xcodeproj
 ### Test
 
 ```sh
-cd HarborKit
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path HarborKit
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path HarborMCP
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  env -u SWIFTTERM_INCLUDE_DEVELOPMENT_TARGETS swift test --package-path SwiftTerm-local
 ```
 
 See [Security and release](docs/security-and-release.md) for signed-release guidance and [Workflows](docs/workflows.md) for everyday operations.

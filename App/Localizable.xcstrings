@@ -52,6 +52,23 @@
         }
       }
     },
+    "%@ 本地副本保留在：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ The local copy was preserved at: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 本地副本保留在：%@"
+          }
+        }
+      }
+    },
     "%@。将自动重试。": {
       "extractionState": "manual",
       "localizations": {
@@ -137,6 +154,57 @@
         }
       }
     },
+    "%lld 个标签页": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld tabs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个标签页"
+          }
+        }
+      }
+    },
+    "%lld 台主机 · %lld 个标签页": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld hosts · %2$lld tabs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 台主机 · %lld 个标签页"
+          }
+        }
+      }
+    },
+    "%lld 条已启用": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld enabled"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条已启用"
+          }
+        }
+      }
+    },
     "%lld 核": {
       "extractionState": "manual",
       "localizations": {
@@ -201,6 +269,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "CPU 详情"
+          }
+        }
+      }
+    },
+    "Docker 不可用": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docker Unavailable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docker 不可用"
+          }
+        }
+      }
+    },
+    "Docker 面板": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docker Panel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docker 面板"
           }
         }
       }
@@ -358,6 +460,23 @@
         }
       }
     },
+    "workspaces.json 无法读取，已移到一旁（%@），工作区列表已重置。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaces.json could not be read; it was moved aside (%@) and the workspace list was reset."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaces.json 无法读取，已移到一旁（%@），工作区列表已重置。"
+          }
+        }
+      }
+    },
     "~/.ssh 中没有找到私钥。": {
       "extractionState": "manual",
       "localizations": {
@@ -494,6 +613,23 @@
         }
       }
     },
+    "上传到服务器…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload to server…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上传到服务器…"
+          }
+        }
+      }
+    },
     "上传文件到当前目录…": {
       "extractionState": "manual",
       "localizations": {
@@ -524,6 +660,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "上级目录"
+          }
+        }
+      }
+    },
+    "下一步": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一步"
           }
         }
       }
@@ -562,6 +715,23 @@
         }
       }
     },
+    "下载 %lld 项到 Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download %lld items to Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载 %lld 项到 Mac"
+          }
+        }
+      }
+    },
     "下载中…": {
       "extractionState": "manual",
       "localizations": {
@@ -575,6 +745,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "下载中…"
+          }
+        }
+      }
+    },
+    "下载到 Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download to Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载到 Mac"
           }
         }
       }
@@ -630,6 +817,23 @@
         }
       }
     },
+    "不支持的备份格式版本：%lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported backup format version: %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支持的备份格式版本：%lld"
+          }
+        }
+      }
+    },
     "不透明度": {
       "extractionState": "manual",
       "localizations": {
@@ -664,6 +868,23 @@
         }
       }
     },
+    "个人目录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home directory"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个人目录"
+          }
+        }
+      }
+    },
     "中断": {
       "extractionState": "manual",
       "localizations": {
@@ -681,6 +902,40 @@
         }
       }
     },
+    "为避免替换符号链接，远程编辑不支持符号链接文件。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote editing does not support symbolic links, because atomic replacement would replace the link itself."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为避免替换符号链接，远程编辑不支持符号链接文件。"
+          }
+        }
+      }
+    },
+    "为避免生成无密码保护的私钥，此处不能留空。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This field cannot be empty because Harbor will not generate an unprotected private key."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为避免生成无密码保护的私钥，此处不能留空。"
+          }
+        }
+      }
+    },
     "主机": {
       "extractionState": "manual",
       "localizations": {
@@ -694,6 +949,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "主机"
+          }
+        }
+      }
+    },
+    "主机“%@”包含不安全或不支持的连接参数。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host “%@” contains unsafe or unsupported connection parameters."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机“%@”包含不安全或不支持的连接参数。"
           }
         }
       }
@@ -749,6 +1021,23 @@
         }
       }
     },
+    "主机密钥未受信任或已变更，Harbor 未发送密码。请先在“终端”中使用交互式 ssh 连接，核对并接受主机指纹后再重试。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host key is not trusted or has changed, so Harbor did not send the password. First connect with interactive ssh in Terminal, verify and accept the fingerprint, then try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机密钥未受信任或已变更，Harbor 未发送密码。请先在“终端”中使用交互式 ssh 连接，核对并接受主机指纹后再重试。"
+          }
+        }
+      }
+    },
     "主机无效：“%@”": {
       "extractionState": "manual",
       "localizations": {
@@ -762,6 +1051,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "主机无效：“%@”"
+          }
+        }
+      }
+    },
+    "主机：%@:%lld\nHarbor 将严格验证 RDP 证书；证书不受信任或与主机名不匹配时会被拒绝，不会自动忽略自签名证书。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host: %1$@:%2$lld\nHarbor strictly validates the RDP certificate. An untrusted certificate or hostname mismatch will be rejected; self-signed certificates are not ignored automatically."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机：%@:%lld\nHarbor 将严格验证 RDP 证书；证书不受信任或与主机名不匹配时会被拒绝，不会自动忽略自签名证书。"
           }
         }
       }
@@ -847,6 +1153,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "仅有隐藏文件（可在上方工具条开启显示）"
+          }
+        }
+      }
+    },
+    "仍然发送": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Anyway"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍然发送"
+          }
+        }
+      }
+    },
+    "仍然执行": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execute Anyway"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍然执行"
           }
         }
       }
@@ -966,6 +1306,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "会话未运行"
+          }
+        }
+      }
+    },
+    "会话未运行，无法发送": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session not running; cannot send"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话未运行，无法发送"
           }
         }
       }
@@ -1208,6 +1565,23 @@
         }
       }
     },
+    "保存工作区失败：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save workspace: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存工作区失败：%@"
+          }
+        }
+      }
+    },
     "保存常用的 SSH 主机，在标签页中打开会话。": {
       "extractionState": "manual",
       "localizations": {
@@ -1221,6 +1595,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存常用的 SSH 主机，在标签页中打开会话。"
+          }
+        }
+      }
+    },
+    "保存当前工作区": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Current Workspace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存当前工作区"
+          }
+        }
+      }
+    },
+    "保存或恢复工作区": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save or restore workspaces"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存或恢复工作区"
           }
         }
       }
@@ -1242,6 +1650,23 @@
         }
       }
     },
+    "停止": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        }
+      }
+    },
     "僵尸": {
       "extractionState": "manual",
       "localizations": {
@@ -1255,6 +1680,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "僵尸"
+          }
+        }
+      }
+    },
+    "先给分组起个名字，然后新建它的第一个脚本。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the group first, then create its first script."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先给分组起个名字，然后新建它的第一个脚本。"
           }
         }
       }
@@ -1276,6 +1718,40 @@
         }
       }
     },
+    "全选": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select All"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全选"
+          }
+        }
+      }
+    },
+    "全部": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部"
+          }
+        }
+      }
+    },
     "八进制": {
       "extractionState": "manual",
       "localizations": {
@@ -1289,6 +1765,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "八进制"
+          }
+        }
+      }
+    },
+    "公钥已安装，但无法验证密钥登录。请先解锁私钥并加入 ssh-agent；如服务器未开启公钥认证，请联系管理员处理。Harbor 不会修改 sshd_config。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The public key was installed, but key-based login could not be verified. Unlock the private key and add it to ssh-agent. If public-key authentication is disabled on the server, contact its administrator. Harbor will not modify sshd_config."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公钥已安装，但无法验证密钥登录。请先解锁私钥并加入 ssh-agent；如服务器未开启公钥认证，请联系管理员处理。Harbor 不会修改 sshd_config。"
           }
         }
       }
@@ -1599,6 +2092,23 @@
         }
       }
     },
+    "分组名称": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分组名称"
+          }
+        }
+      }
+    },
     "创建": {
       "extractionState": "manual",
       "localizations": {
@@ -1735,6 +2245,57 @@
         }
       }
     },
+    "删除分组 “%@”？": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete group “%@”?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除分组 “%@”？"
+          }
+        }
+      }
+    },
+    "删除分组…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Group…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除分组…"
+          }
+        }
+      }
+    },
+    "删除分组？": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Group?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除分组？"
+          }
+        }
+      }
+    },
     "删除命令？": {
       "extractionState": "manual",
       "localizations": {
@@ -1752,6 +2313,74 @@
         }
       }
     },
+    "删除容器": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Container"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除容器"
+          }
+        }
+      }
+    },
+    "删除工作区": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Workspace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除工作区"
+          }
+        }
+      }
+    },
+    "删除脚本？": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Script?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除脚本？"
+          }
+        }
+      }
+    },
+    "删除镜像": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Image"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除镜像"
+          }
+        }
+      }
+    },
     "刷新": {
       "extractionState": "manual",
       "localizations": {
@@ -1765,6 +2394,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "刷新"
+          }
+        }
+      }
+    },
+    "刷新 Docker 状态": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Docker status"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新 Docker 状态"
           }
         }
       }
@@ -1799,6 +2445,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "加密"
+          }
+        }
+      }
+    },
+    "加载日志中…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading logs…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加载日志中…"
           }
         }
       }
@@ -1973,6 +2636,23 @@
         }
       }
     },
+    "反选": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invert Selection"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反选"
+          }
+        }
+      }
+    },
     "发送": {
       "extractionState": "manual",
       "localizations": {
@@ -2041,6 +2721,23 @@
         }
       }
     },
+    "发送到终端": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send to Terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送到终端"
+          }
+        }
+      }
+    },
     "发送时将提示输入：%@": {
       "extractionState": "manual",
       "localizations": {
@@ -2071,6 +2768,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "取消"
+          }
+        }
+      }
+    },
+    "变量": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Variables"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "变量"
           }
         }
       }
@@ -2177,6 +2891,23 @@
         }
       }
     },
+    "可选，留空则用首行": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional; first line used if empty"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选，留空则用首行"
+          }
+        }
+      }
+    },
     "各核心": {
       "extractionState": "manual",
       "localizations": {
@@ -2245,6 +2976,40 @@
         }
       }
     },
+    "含 %lld 台不存在的主机，恢复时将跳过。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld unavailable hosts will be skipped when restoring."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含 %lld 台不存在的主机，恢复时将跳过。"
+          }
+        }
+      }
+    },
+    "启动": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动"
+          }
+        }
+      }
+    },
     "启动时间": {
       "extractionState": "manual",
       "localizations": {
@@ -2275,6 +3040,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "命令"
+          }
+        }
+      }
+    },
+    "命令将追加换行符后发送到每个选中终端的 PTY，与在命令行中手动输入等效。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command is sent with a trailing newline to each selected terminal's PTY — equivalent to typing it manually."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令将追加换行符后发送到每个选中终端的 PTY，与在命令行中手动输入等效。"
+          }
+        }
+      }
+    },
+    "命令已追加换行符发送到每个选中终端的 PTY。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command was sent with a trailing newline to each selected terminal's PTY."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令已追加换行符发送到每个选中终端的 PTY。"
           }
         }
       }
@@ -2381,6 +3180,23 @@
         }
       }
     },
+    "命令：": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令："
+          }
+        }
+      }
+    },
     "图片": {
       "extractionState": "manual",
       "localizations": {
@@ -2432,6 +3248,57 @@
         }
       }
     },
+    "在 Finder 中打开当前目录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open current directory in Finder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中打开当前目录"
+          }
+        }
+      }
+    },
+    "在 Finder 中显示": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal in Finder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中显示"
+          }
+        }
+      }
+    },
+    "在 Finder 中显示 %lld 项": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal %lld items in Finder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中显示 %lld 项"
+          }
+        }
+      }
+    },
     "在新标签页中连接": {
       "extractionState": "manual",
       "localizations": {
@@ -2462,6 +3329,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "在此输入命令，⏎ 发送…"
+          }
+        }
+      }
+    },
+    "在此输入脚本，可多行。用 {{名称}} 定义变量。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a script here; multiple lines allowed. Use {{name}} to define variables."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此输入脚本，可多行。用 {{名称}} 定义变量。"
           }
         }
       }
@@ -2547,6 +3431,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "填写参数"
+          }
+        }
+      }
+    },
+    "填写变量": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fill in Variables"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填写变量"
           }
         }
       }
@@ -2772,6 +3673,23 @@
         }
       }
     },
+    "安装公钥并验证登录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Public Key and Verify Login"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装公钥并验证登录"
+          }
+        }
+      }
+    },
     "完成": {
       "extractionState": "manual",
       "localizations": {
@@ -2802,6 +3720,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "实时 ↑/↓"
+          }
+        }
+      }
+    },
+    "容器": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Containers"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "容器"
           }
         }
       }
@@ -2853,6 +3788,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "密码保护（可选）"
+          }
+        }
+      }
+    },
+    "密码保护（必填）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passphrase (required)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码保护（必填）"
           }
         }
       }
@@ -3078,6 +4030,57 @@
         }
       }
     },
+    "导入文件包含过多主机或命令。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The import contains too many hosts or commands."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入文件包含过多主机或命令。"
+          }
+        }
+      }
+    },
+    "导入文件包含重复 ID，已拒绝导入。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The import contains duplicate IDs and was rejected."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入文件包含重复 ID，已拒绝导入。"
+          }
+        }
+      }
+    },
+    "导入文件过大（上限 16 MB）。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The import is too large (16 MB maximum)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入文件过大（上限 16 MB）。"
+          }
+        }
+      }
+    },
     "导出": {
       "extractionState": "manual",
       "localizations": {
@@ -3163,6 +4166,91 @@
         }
       }
     },
+    "将关闭当前 %lld 个标签页并恢复“%@”。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close the current %1$lld tabs and restore “%2$@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将关闭当前 %lld 个标签页并恢复“%@”。"
+          }
+        }
+      }
+    },
+    "工作区": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区"
+          }
+        }
+      }
+    },
+    "工作区中的主机已不可用，当前标签页未关闭。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace hosts are unavailable; current tabs were left open."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区中的主机已不可用，当前标签页未关闭。"
+          }
+        }
+      }
+    },
+    "工作区名称": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区名称"
+          }
+        }
+      }
+    },
+    "工作区存储出错": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Storage Error"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区存储出错"
+          }
+        }
+      }
+    },
     "已保存": {
       "extractionState": "manual",
       "localizations": {
@@ -3180,6 +4268,23 @@
         }
       }
     },
+    "已保存的工作区": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Workspaces"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存的工作区"
+          }
+        }
+      }
+    },
     "已停止": {
       "extractionState": "manual",
       "localizations": {
@@ -3193,6 +4298,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "已停止"
+          }
+        }
+      }
+    },
+    "已发送到 %lld 个会话。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent to %lld session(s)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送到 %lld 个会话。"
+          }
+        }
+      }
+    },
+    "已发送到 %lld 个会话，其中 %lld 个失败。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent to %lld session(s); %lld failed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送到 %lld 个会话，其中 %lld 个失败。"
+          }
+        }
+      }
+    },
+    "已发送到终端": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent to Terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送到终端"
           }
         }
       }
@@ -3282,6 +4438,23 @@
         }
       }
     },
+    "已恢复 %lld 个标签页，跳过 %lld 台不存在的主机。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored %1$lld tabs and skipped %2$lld unavailable hosts."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复 %lld 个标签页，跳过 %lld 台不存在的主机。"
+          }
+        }
+      }
+    },
     "已添加": {
       "extractionState": "manual",
       "localizations": {
@@ -3363,6 +4536,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已退出，退出码 %lld。"
+          }
+        }
+      }
+    },
+    "已配置 %lld 条转发": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld forward(s) configured"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配置 %lld 条转发"
           }
         }
       }
@@ -3605,6 +4795,40 @@
         }
       }
     },
+    "恢复": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复"
+          }
+        }
+      }
+    },
+    "恢复工作区": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Workspace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复工作区"
+          }
+        }
+      }
+    },
     "恢复默认": {
       "extractionState": "manual",
       "localizations": {
@@ -3724,6 +4948,40 @@
         }
       }
     },
+    "打开标签页后，为当前布局命名并保存。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open tabs, then name and save the current layout."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开标签页后，为当前布局命名并保存。"
+          }
+        }
+      }
+    },
+    "打开终端": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开终端"
+          }
+        }
+      }
+    },
     "执行": {
       "extractionState": "manual",
       "localizations": {
@@ -3737,6 +4995,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "执行"
+          }
+        }
+      }
+    },
+    "批量执行": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Batch Execute"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "批量执行"
+          }
+        }
+      }
+    },
+    "找不到此容器所属的 SSH 会话": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not find the SSH session that owns this container"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到此容器所属的 SSH 会话"
           }
         }
       }
@@ -3809,6 +5101,23 @@
         }
       }
     },
+    "把常用脚本保存到库里，随时发送到任意终端会话。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save frequently used scripts to the library and send them to any terminal session."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把常用脚本保存到库里，随时发送到任意终端会话。"
+          }
+        }
+      }
+    },
     "把这个快速连接目标保存为主机": {
       "extractionState": "manual",
       "localizations": {
@@ -3856,6 +5165,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "拖动调整目录树宽度"
+          }
+        }
+      }
+    },
+    "拖动调整窗格宽度": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to resize panes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖动调整窗格宽度"
           }
         }
       }
@@ -3945,6 +5271,23 @@
         }
       }
     },
+    "提示：写 {{名称}} 可在发送前提示输入变量。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tip: write {{name}} to be prompted for variables before sending."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示：写 {{名称}} 可在发送前提示输入变量。"
+          }
+        }
+      }
+    },
     "提示：在命令中写 {名称} 可在发送时提示输入参数。": {
       "extractionState": "manual",
       "localizations": {
@@ -3996,6 +5339,57 @@
         }
       }
     },
+    "搜索脚本…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search scripts…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索脚本…"
+          }
+        }
+      }
+    },
+    "操作失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operation failed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作失败"
+          }
+        }
+      }
+    },
+    "操作已取消；远程文件未被替换。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The operation was canceled; the remote file was not replaced."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作已取消；远程文件未被替换。"
+          }
+        }
+      }
+    },
     "操作系统": {
       "extractionState": "manual",
       "localizations": {
@@ -4026,6 +5420,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "操作超时"
+          }
+        }
+      }
+    },
+    "敏感历史": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sensitive History"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "敏感历史"
           }
         }
       }
@@ -4200,6 +5611,23 @@
         }
       }
     },
+    "新建": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建"
+          }
+        }
+      }
+    },
     "新建主机": {
       "extractionState": "manual",
       "localizations": {
@@ -4230,6 +5658,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "新建会话"
+          }
+        }
+      }
+    },
+    "新建分组": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Group"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建分组"
+          }
+        }
+      }
+    },
+    "新建分组…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Group…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建分组…"
           }
         }
       }
@@ -4302,6 +5764,40 @@
         }
       }
     },
+    "新建脚本": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Script"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建脚本"
+          }
+        }
+      }
+    },
+    "新建脚本…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Script…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建脚本…"
+          }
+        }
+      }
+    },
     "无匹配": {
       "extractionState": "manual",
       "localizations": {
@@ -4336,6 +5832,23 @@
         }
       }
     },
+    "无法准备密钥生成认证助手。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to prepare the key-generation authentication helper."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法准备密钥生成认证助手。"
+          }
+        }
+      }
+    },
     "无法准备本机 SSH 密钥（ssh-keygen 失败）。": {
       "extractionState": "manual",
       "localizations": {
@@ -4366,6 +5879,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法准备认证助手。"
+          }
+        }
+      }
+    },
+    "无法启动日志跟踪": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not start log streaming"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动日志跟踪"
           }
         }
       }
@@ -4523,6 +6053,23 @@
         }
       }
     },
+    "无法读取远程文件版本。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to read the remote file version."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取远程文件版本。"
+          }
+        }
+      }
+    },
     "无法连接": {
       "extractionState": "manual",
       "localizations": {
@@ -4536,6 +6083,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法连接"
+          }
+        }
+      }
+    },
+    "日志": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日志"
+          }
+        }
+      }
+    },
+    "日志…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logs…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日志…"
+          }
+        }
+      }
+    },
+    "日志跟踪已结束（容器可能已停止）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log streaming ended (the container may have stopped)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日志跟踪已结束（容器可能已停止）"
+          }
+        }
+      }
+    },
+    "日志：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logs: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日志：%@"
           }
         }
       }
@@ -4604,6 +6219,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示 IP 地址"
+          }
+        }
+      }
+    },
+    "显示/隐藏容器日志": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show/hide container logs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示/隐藏容器日志"
+          }
+        }
+      }
+    },
+    "显示/隐藏镜像列表": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show/hide image list"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示/隐藏镜像列表"
           }
         }
       }
@@ -4812,6 +6461,23 @@
         }
       }
     },
+    "暂无转发数据": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No forwarding data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无转发数据"
+          }
+        }
+      }
+    },
     "暂无进程数据": {
       "extractionState": "manual",
       "localizations": {
@@ -4931,6 +6597,23 @@
         }
       }
     },
+    "未分类": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uncategorized"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未分类"
+          }
+        }
+      }
+    },
     "未分组": {
       "extractionState": "manual",
       "localizations": {
@@ -4999,6 +6682,23 @@
         }
       }
     },
+    "未找到可用的本机 SSH 公钥。请先在“设置 → 密钥”生成带密码保护的密钥，或在上方选择已有私钥。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usable local SSH public key was found. First generate a passphrase-protected key in Settings → Keys, or select an existing private key above."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到可用的本机 SSH 公钥。请先在“设置 → 密钥”生成带密码保护的密钥，或在上方选择已有私钥。"
+          }
+        }
+      }
+    },
     "未知": {
       "extractionState": "manual",
       "localizations": {
@@ -5046,6 +6746,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "未连接"
+          }
+        }
+      }
+    },
+    "未配置端口转发": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No port forwards configured"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未配置端口转发"
+          }
+        }
+      }
+    },
+    "本地": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地"
           }
         }
       }
@@ -5373,6 +7107,23 @@
         }
       }
     },
+    "正在更新…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新…"
+          }
+        }
+      }
+    },
     "正在检测系统…": {
       "extractionState": "manual",
       "localizations": {
@@ -5509,6 +7260,23 @@
         }
       }
     },
+    "此命令将发送到 %lld 个会话：": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This command will be sent to %lld session(s):"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此命令将发送到 %lld 个会话："
+          }
+        }
+      }
+    },
     "此操作无法撤销。": {
       "extractionState": "manual",
       "localizations": {
@@ -5628,6 +7396,40 @@
         }
       }
     },
+    "没有匹配的脚本": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Matching Scripts"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配的脚本"
+          }
+        }
+      }
+    },
+    "没有容器": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Containers"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有容器"
+          }
+        }
+      }
+    },
     "没有导入新主机；跳过了 %lld 个条目（名称已存在或无效）。": {
       "extractionState": "manual",
       "localizations": {
@@ -5641,6 +7443,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "没有导入新主机；跳过了 %lld 个条目（名称已存在或无效）。"
+          }
+        }
+      }
+    },
+    "没有已保存的工作区。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved workspaces."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有已保存的工作区。"
           }
         }
       }
@@ -5662,6 +7481,23 @@
         }
       }
     },
+    "没有正在运行的会话": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No running sessions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有正在运行的会话"
+          }
+        }
+      }
+    },
     "没有监听中的端口。": {
       "extractionState": "manual",
       "localizations": {
@@ -5675,6 +7511,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "没有监听中的端口。"
+          }
+        }
+      }
+    },
+    "没有镜像": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Images"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有镜像"
           }
         }
       }
@@ -6138,6 +7991,23 @@
         }
       }
     },
+    "用于保护私钥": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used to protect the private key"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用于保护私钥"
+          }
+        }
+      }
+    },
     "用外部编辑器打开": {
       "extractionState": "manual",
       "localizations": {
@@ -6274,6 +8144,23 @@
         }
       }
     },
+    "监控和文件面板状态会一并保存。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitoring and file-panel visibility are saved too."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监控和文件面板状态会一并保存。"
+          }
+        }
+      }
+    },
     "监控暂不可用": {
       "extractionState": "manual",
       "localizations": {
@@ -6321,6 +8208,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "监控面板"
+          }
+        }
+      }
+    },
+    "目录不存在或无权访问：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directory does not exist or is inaccessible: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目录不存在或无权访问：%@"
           }
         }
       }
@@ -6410,6 +8314,57 @@
         }
       }
     },
+    "确定要删除容器“%@”吗？此操作不可撤销。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete container “%@”? This cannot be undone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定要删除容器“%@”吗？此操作不可撤销。"
+          }
+        }
+      }
+    },
+    "确定要删除镜像“%@”吗？此操作不可撤销。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete image “%@”? This cannot be undone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定要删除镜像“%@”吗？此操作不可撤销。"
+          }
+        }
+      }
+    },
+    "确认发送高风险命令": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm Sending High-Risk Command"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认发送高风险命令"
+          }
+        }
+      }
+    },
     "确认密码": {
       "extractionState": "manual",
       "localizations": {
@@ -6423,6 +8378,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "确认密码"
+          }
+        }
+      }
+    },
+    "确认批量执行高风险命令": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm Batch Execution of High-Risk Command"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认批量执行高风险命令"
           }
         }
       }
@@ -6559,6 +8531,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "窗口"
+          }
+        }
+      }
+    },
+    "立即清除命令与路径历史": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Command and Path History Now"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即清除命令与路径历史"
           }
         }
       }
@@ -7141,6 +9130,23 @@
         }
       }
     },
+    "编辑后的文件超过应用内保存上限（8 MB）。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The edited file exceeds the in-app save limit (8 MB)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑后的文件超过应用内保存上限（8 MB）。"
+          }
+        }
+      }
+    },
     "编辑命令": {
       "extractionState": "manual",
       "localizations": {
@@ -7154,6 +9160,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "编辑命令"
+          }
+        }
+      }
+    },
+    "编辑脚本": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Script"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑脚本"
           }
         }
       }
@@ -7345,6 +9368,57 @@
         }
       }
     },
+    "脚本内容": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script Content"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脚本内容"
+          }
+        }
+      }
+    },
+    "脚本库": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script Library"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脚本库"
+          }
+        }
+      }
+    },
+    "自动滚动到最新日志": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-scroll to latest logs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动滚动到最新日志"
+          }
+        }
+      }
+    },
     "自定义颜色": {
       "extractionState": "manual",
       "localizations": {
@@ -7515,6 +9589,23 @@
         }
       }
     },
+    "设置 (⌘,)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings (⌘,)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置 (⌘,)"
+          }
+        }
+      }
+    },
     "设置文字颜色…": {
       "extractionState": "manual",
       "localizations": {
@@ -7549,6 +9640,57 @@
         }
       }
     },
+    "该分组下的 %lld 个脚本也会被删除，此操作无法撤销。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The %lld script(s) in this group will also be deleted. This cannot be undone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该分组下的 %lld 个脚本也会被删除，此操作无法撤销。"
+          }
+        }
+      }
+    },
+    "该容器已不存在。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This container no longer exists."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该容器已不存在。"
+          }
+        }
+      }
+    },
+    "该镜像已不存在。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This image no longer exists."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该镜像已不存在。"
+          }
+        }
+      }
+    },
     "语言": {
       "extractionState": "manual",
       "localizations": {
@@ -7566,6 +9708,23 @@
         }
       }
     },
+    "请先建立 SSH 连接": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Establish an SSH connection first"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先建立 SSH 连接"
+          }
+        }
+      }
+    },
     "请填写主机名。": {
       "extractionState": "manual",
       "localizations": {
@@ -7579,6 +9738,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "请填写主机名。"
+          }
+        }
+      }
+    },
+    "请输入当前账户的 SSH 密码。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the current account's SSH password."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入当前账户的 SSH 密码。"
           }
         }
       }
@@ -7651,6 +9827,23 @@
         }
       }
     },
+    "跟随": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随"
+          }
+        }
+      }
+    },
     "跟随系统": {
       "extractionState": "manual",
       "localizations": {
@@ -7664,6 +9857,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "跟随系统"
+          }
+        }
+      }
+    },
+    "跨启动保存命令与远程路径历史": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save command and remote path history across launches"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跨启动保存命令与远程路径历史"
           }
         }
       }
@@ -7770,6 +9980,23 @@
         }
       }
     },
+    "还没有脚本": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Scripts Yet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有脚本"
+          }
+        }
+      }
+    },
     "这似乎是二进制文件，无法以文本方式编辑。": {
       "extractionState": "manual",
       "localizations": {
@@ -7838,6 +10065,23 @@
         }
       }
     },
+    "远程": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程"
+          }
+        }
+      }
+    },
     "远程 (-R)": {
       "extractionState": "manual",
       "localizations": {
@@ -7851,6 +10095,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "远程 (-R)"
+          }
+        }
+      }
+    },
+    "远程文件已替换，但无法确认新版本；请刷新后再编辑。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote file was replaced, but its new version could not be confirmed. Refresh before editing again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程文件已替换，但无法确认新版本；请刷新后再编辑。"
+          }
+        }
+      }
+    },
+    "远程文件已被其他程序修改；为避免覆盖，保存已停止。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote file was modified by another program. Saving was stopped to prevent overwriting it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程文件已被其他程序修改；为避免覆盖，保存已停止。"
+          }
+        }
+      }
+    },
+    "远程服务器上未找到 docker 命令": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docker command not found on the remote server"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程服务器上未找到 docker 命令"
           }
         }
       }
@@ -8042,6 +10337,23 @@
         }
       }
     },
+    "选择一个 .harbor 备份文件。相同 ID 且连接目标一致的主机将更新；目标不一致时会作为新主机导入。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a .harbor backup. A host with the same ID and connection target will be updated; if the target differs, it will be imported as a new host."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择一个 .harbor 备份文件。相同 ID 且连接目标一致的主机将更新；目标不一致时会作为新主机导入。"
+          }
+        }
+      }
+    },
     "选择一个私钥文件": {
       "extractionState": "manual",
       "localizations": {
@@ -8076,6 +10388,23 @@
         }
       }
     },
+    "选择已有分组": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose an existing group"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择已有分组"
+          }
+        }
+      }
+    },
     "选择标签页 %lld": {
       "extractionState": "manual",
       "localizations": {
@@ -8089,6 +10418,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "选择标签页 %lld"
+          }
+        }
+      }
+    },
+    "选择目标会话：": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select target sessions:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择目标会话："
           }
         }
       }
@@ -8161,6 +10507,23 @@
         }
       }
     },
+    "重启": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重启"
+          }
+        }
+      }
+    },
     "重命名": {
       "extractionState": "manual",
       "localizations": {
@@ -8191,6 +10554,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "重命名…"
+          }
+        }
+      }
+    },
+    "重命名会更新该分组下的所有脚本。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renaming updates every script in this group."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名会更新该分组下的所有脚本。"
+          }
+        }
+      }
+    },
+    "重命名分组": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Group"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名分组"
+          }
+        }
+      }
+    },
+    "重命名分组…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Group…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名分组…"
+          }
+        }
+      }
+    },
+    "重新跟踪日志": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart log streaming"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新跟踪日志"
           }
         }
       }
@@ -8314,6 +10745,40 @@
         }
       }
     },
+    "镜像": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Images"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "镜像"
+          }
+        }
+      }
+    },
+    "隐私": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私"
+          }
+        }
+      }
+    },
     "隐藏 IP": {
       "extractionState": "manual",
       "localizations": {
@@ -8433,6 +10898,23 @@
         }
       }
     },
+    "首次连接请先在“终端”中运行交互式 ssh 并核对主机指纹。Harbor 只安装公钥，不会修改服务器 sshd_config。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before the first connection, run interactive ssh in Terminal and verify the host fingerprint. Harbor only installs the public key; it will not modify the server's sshd_config."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次连接请先在“终端”中运行交互式 ssh 并核对主机指纹。Harbor 只安装公钥，不会修改服务器 sshd_config。"
+          }
+        }
+      }
+    },
     "高级": {
       "extractionState": "manual",
       "localizations": {
@@ -8446,6 +10928,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "高级"
+          }
+        }
+      }
+    },
+    "默认关闭。关闭时历史只保留在当前运行内，并会清除 UserDefaults 中已有的命令和远程路径。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off by default. When disabled, history remains only for the current run and existing command and remote path history is removed from UserDefaults."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认关闭。关闭时历史只保留在当前运行内，并会清除 UserDefaults 中已有的命令和远程路径。"
           }
         }
       }
@@ -8467,91 +10966,6 @@
         }
       }
     },
-    "已配置 %lld 条转发": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld forward(s) configured"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已配置 %lld 条转发"
-          }
-        }
-      }
-    },
-    "%lld 条已启用": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld enabled"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 条已启用"
-          }
-        }
-      }
-    },
-    "未配置端口转发": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No port forwards configured"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未配置端口转发"
-          }
-        }
-      }
-    },
-    "正在更新…": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Updating…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在更新…"
-          }
-        }
-      }
-    },
-    "暂无转发数据": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No forwarding data"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暂无转发数据"
-          }
-        }
-      }
-    },
     "（1 / 5 / 15 分钟）": {
       "extractionState": "manual",
       "localizations": {
@@ -8567,536 +10981,6 @@
             "value": "（1 / 5 / 15 分钟）"
           }
         }
-      }
-    },
-    "本地": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Local"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本地"
-          }
-        }
-      }
-    },
-    "远程": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "远程"
-          }
-        }
-      }
-    },
-    "拖动调整窗格宽度": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drag to resize panes"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拖动调整窗格宽度"
-          }
-        }
-      }
-    },
-    "在 Finder 中显示": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reveal in Finder"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 Finder 中显示"
-          }
-        }
-      }
-    },
-    "在 Finder 中显示 %lld 项": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reveal %lld items in Finder"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 Finder 中显示 %lld 项"
-          }
-        }
-      }
-    },
-    "在 Finder 中打开当前目录": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open current directory in Finder"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 Finder 中打开当前目录"
-          }
-        }
-      }
-    },
-    "上传到服务器…": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upload to server…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上传到服务器…"
-          }
-        }
-      }
-    },
-    "下载到 Mac": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Download to Mac"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下载到 Mac"
-          }
-        }
-      }
-    },
-    "下载 %lld 项到 Mac": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Download %lld items to Mac"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下载 %lld 项到 Mac"
-          }
-        }
-      }
-    },
-    "个人目录": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Home directory"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "个人目录"
-          }
-        }
-      }
-    },
-    "目录不存在或无权访问：%@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Directory does not exist or is inaccessible: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目录不存在或无权访问：%@"
-          }
-        }
-      }
-    },
-    "%@ 本地副本保留在：%@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "%1$@ The local copy was preserved at: %2$@"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@ 本地副本保留在：%@"}}
-      }
-    },
-    "不支持的备份格式版本：%lld": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Unsupported backup format version: %lld"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "不支持的备份格式版本：%lld"}}
-      }
-    },
-    "为避免替换符号链接，远程编辑不支持符号链接文件。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Remote editing does not support symbolic links, because atomic replacement would replace the link itself."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "为避免替换符号链接，远程编辑不支持符号链接文件。"}}
-      }
-    },
-    "为避免生成无密码保护的私钥，此处不能留空。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "This field cannot be empty because Harbor will not generate an unprotected private key."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "为避免生成无密码保护的私钥，此处不能留空。"}}
-      }
-    },
-    "主机“%@”包含不安全或不支持的连接参数。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Host “%@” contains unsafe or unsupported connection parameters."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主机“%@”包含不安全或不支持的连接参数。"}}
-      }
-    },
-    "主机密钥未受信任或已变更，Harbor 未发送密码。请先在“终端”中使用交互式 ssh 连接，核对并接受主机指纹后再重试。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The host key is not trusted or has changed, so Harbor did not send the password. First connect with interactive ssh in Terminal, verify and accept the fingerprint, then try again."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主机密钥未受信任或已变更，Harbor 未发送密码。请先在“终端”中使用交互式 ssh 连接，核对并接受主机指纹后再重试。"}}
-      }
-    },
-    "主机：%@:%lld\nHarbor 将严格验证 RDP 证书；证书不受信任或与主机名不匹配时会被拒绝，不会自动忽略自签名证书。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Host: %1$@:%2$lld\nHarbor strictly validates the RDP certificate. An untrusted certificate or hostname mismatch will be rejected; self-signed certificates are not ignored automatically."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主机：%@:%lld\nHarbor 将严格验证 RDP 证书；证书不受信任或与主机名不匹配时会被拒绝，不会自动忽略自签名证书。"}}
-      }
-    },
-    "公钥已安装，但无法验证密钥登录。请先解锁私钥并加入 ssh-agent；如服务器未开启公钥认证，请联系管理员处理。Harbor 不会修改 sshd_config。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The public key was installed, but key-based login could not be verified. Unlock the private key and add it to ssh-agent. If public-key authentication is disabled on the server, contact its administrator. Harbor will not modify sshd_config."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "公钥已安装，但无法验证密钥登录。请先解锁私钥并加入 ssh-agent；如服务器未开启公钥认证，请联系管理员处理。Harbor 不会修改 sshd_config。"}}
-      }
-    },
-    "安装公钥并验证登录": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Install Public Key and Verify Login"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "安装公钥并验证登录"}}
-      }
-    },
-    "密码保护（必填）": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Passphrase (required)"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "密码保护（必填）"}}
-      }
-    },
-    "导入文件包含过多主机或命令。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The import contains too many hosts or commands."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "导入文件包含过多主机或命令。"}}
-      }
-    },
-    "导入文件包含重复 ID，已拒绝导入。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The import contains duplicate IDs and was rejected."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "导入文件包含重复 ID，已拒绝导入。"}}
-      }
-    },
-    "导入文件过大（上限 16 MB）。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The import is too large (16 MB maximum)."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "导入文件过大（上限 16 MB）。"}}
-      }
-    },
-    "操作已取消；远程文件未被替换。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The operation was canceled; the remote file was not replaced."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "操作已取消；远程文件未被替换。"}}
-      }
-    },
-    "敏感历史": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Sensitive History"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "敏感历史"}}
-      }
-    },
-    "无法准备密钥生成认证助手。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Unable to prepare the key-generation authentication helper."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法准备密钥生成认证助手。"}}
-      }
-    },
-    "无法读取远程文件版本。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Unable to read the remote file version."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法读取远程文件版本。"}}
-      }
-    },
-    "未找到可用的本机 SSH 公钥。请先在“设置 → 密钥”生成带密码保护的密钥，或在上方选择已有私钥。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "No usable local SSH public key was found. First generate a passphrase-protected key in Settings → Keys, or select an existing private key above."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "未找到可用的本机 SSH 公钥。请先在“设置 → 密钥”生成带密码保护的密钥，或在上方选择已有私钥。"}}
-      }
-    },
-    "用于保护私钥": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Used to protect the private key"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "用于保护私钥"}}
-      }
-    },
-    "立即清除命令与路径历史": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Clear Command and Path History Now"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "立即清除命令与路径历史"}}
-      }
-    },
-    "编辑后的文件超过应用内保存上限（8 MB）。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The edited file exceeds the in-app save limit (8 MB)."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "编辑后的文件超过应用内保存上限（8 MB）。"}}
-      }
-    },
-    "请输入当前账户的 SSH 密码。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Enter the current account's SSH password."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "请输入当前账户的 SSH 密码。"}}
-      }
-    },
-    "跨启动保存命令与远程路径历史": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Save command and remote path history across launches"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "跨启动保存命令与远程路径历史"}}
-      }
-    },
-    "选择一个 .harbor 备份文件。相同 ID 且连接目标一致的主机将更新；目标不一致时会作为新主机导入。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Choose a .harbor backup. A host with the same ID and connection target will be updated; if the target differs, it will be imported as a new host."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "选择一个 .harbor 备份文件。相同 ID 且连接目标一致的主机将更新；目标不一致时会作为新主机导入。"}}
-      }
-    },
-    "远程文件已替换，但无法确认新版本；请刷新后再编辑。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The remote file was replaced, but its new version could not be confirmed. Refresh before editing again."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "远程文件已替换，但无法确认新版本；请刷新后再编辑。"}}
-      }
-    },
-    "远程文件已被其他程序修改；为避免覆盖，保存已停止。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The remote file was modified by another program. Saving was stopped to prevent overwriting it."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "远程文件已被其他程序修改；为避免覆盖，保存已停止。"}}
-      }
-    },
-    "隐私": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Privacy"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "隐私"}}
-      }
-    },
-    "默认关闭。关闭时历史只保留在当前运行内，并会清除 UserDefaults 中已有的命令和远程路径。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Off by default. When disabled, history remains only for the current run and existing command and remote path history is removed from UserDefaults."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "默认关闭。关闭时历史只保留在当前运行内，并会清除 UserDefaults 中已有的命令和远程路径。"}}
-      }
-    },
-    "%lld 个标签页": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "%lld tabs"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%lld 个标签页"}}
-      }
-    },
-    "%lld 台主机 · %lld 个标签页": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "%1$lld hosts · %2$lld tabs"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%lld 台主机 · %lld 个标签页"}}
-      }
-    },
-    "保存当前工作区": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Save Current Workspace"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "保存当前工作区"}}
-      }
-    },
-    "保存工作区失败：%@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Could not save workspace: %@"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "保存工作区失败：%@"}}
-      }
-    },
-    "保存或恢复工作区": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Save or restore workspaces"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "保存或恢复工作区"}}
-      }
-    },
-    "含 %lld 台不存在的主机，恢复时将跳过。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "%lld unavailable hosts will be skipped when restoring."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "含 %lld 台不存在的主机，恢复时将跳过。"}}
-      }
-    },
-    "工作区": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Workspaces"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区"}}
-      }
-    },
-    "工作区名称": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Workspace name"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区名称"}}
-      }
-    },
-    "工作区中的主机已不可用，当前标签页未关闭。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The workspace hosts are unavailable; current tabs were left open."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区中的主机已不可用，当前标签页未关闭。"}}
-      }
-    },
-    "工作区存储出错": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Workspace Storage Error"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区存储出错"}}
-      }
-    },
-    "workspaces.json 无法读取，已移到一旁（%@），工作区列表已重置。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "workspaces.json could not be read; it was moved aside (%@) and the workspace list was reset."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "workspaces.json 无法读取，已移到一旁（%@），工作区列表已重置。"}}
-      }
-    },
-    "已保存的工作区": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Saved Workspaces"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "已保存的工作区"}}
-      }
-    },
-    "已恢复 %lld 个标签页，跳过 %lld 台不存在的主机。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Restored %1$lld tabs and skipped %2$lld unavailable hosts."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "已恢复 %lld 个标签页，跳过 %lld 台不存在的主机。"}}
-      }
-    },
-    "将关闭当前 %lld 个标签页并恢复“%@”。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Close the current %1$lld tabs and restore “%2$@”."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "将关闭当前 %lld 个标签页并恢复“%@”。"}}
-      }
-    },
-    "打开标签页后，为当前布局命名并保存。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Open tabs, then name and save the current layout."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "打开标签页后，为当前布局命名并保存。"}}
-      }
-    },
-    "没有已保存的工作区。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "No saved workspaces."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "没有已保存的工作区。"}}
-      }
-    },
-    "监控和文件面板状态会一并保存。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Monitoring and file-panel visibility are saved too."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "监控和文件面板状态会一并保存。"}}
-      }
-    },
-    "删除工作区": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Delete Workspace"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "删除工作区"}}
-      }
-    },
-    "恢复工作区": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Restore Workspace"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "恢复工作区"}}
-      }
-    },
-    "恢复": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Restore"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "恢复"}}
-      }
-    },
-    "首次连接请先在“终端”中运行交互式 ssh 并核对主机指纹。Harbor 只安装公钥，不会修改服务器 sshd_config。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Before the first connection, run interactive ssh in Terminal and verify the host fingerprint. Harbor only installs the public key; it will not modify the server's sshd_config."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "首次连接请先在“终端”中运行交互式 ssh 并核对主机指纹。Harbor 只安装公钥，不会修改服务器 sshd_config。"}}
       }
     }
   },

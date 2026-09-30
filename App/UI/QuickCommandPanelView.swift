@@ -161,8 +161,17 @@ struct QuickCommandPanelView: View {
     @State private var pendingRisk: CommandRisk?
     @State private var pendingCommand = ""
     @State private var collapsedGroups: Set<String> = []
+    @State private var searchText = ""
 
     private var canSend: Bool { sessionState == .running }
+
+    /// Single filtered result (or the live store array when the query is empty),
+    /// then one linear grouping pass. No per-section full-array copies.
+    private var groupedVisibleCommands: [(group: String, commands: [QuickCommand])] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = q.isEmpty ? nil : store.search(q)
+        return store.groupedCommands(in: source)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -174,6 +183,7 @@ struct QuickCommandPanelView: View {
                 list
             }
         }
+        .onDisappear { pendingCommand = ""; searchText = "" }
         .sheet(item: $editorTarget) { target in
             QuickCommandEditor(target: target, store: store)
         }
@@ -199,7 +209,7 @@ struct QuickCommandPanelView: View {
         .onReceive(session.$state) { sessionState = $0 }
         .alert(L("确认发送高风险命令"), isPresented: pendingRiskPresented) {
             Button(L("仍然发送"), role: .destructive) {
-                send(pendingCommand)
+                if canSend { send(pendingCommand) }
                 pendingRisk = nil
                 pendingCommand = ""
             }
@@ -216,6 +226,30 @@ struct QuickCommandPanelView: View {
 
     private var toolbar: some View {
         HStack(spacing: DS.Space.xs) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                TextField(L("搜索命令…"), text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous)
+                    .fill(DS.Colors.fieldBackground)
+            )
+            .frame(maxWidth: 220)
+
             if !canSend {
                 Image(systemName: "moon.zzz")
                     .font(.system(size: 10))
@@ -257,27 +291,33 @@ struct QuickCommandPanelView: View {
     // MARK: List (grouped by folder)
 
     private var list: some View {
-        List {
-            ForEach(store.groups, id: \.self) { group in
-                let cmds = store.commands.filter {
-                    $0.group.trimmingCharacters(in: .whitespacesAndNewlines) == group
-                }
-                if !cmds.isEmpty {
-                    Section {
-                        if !collapsedGroups.contains(group) {
-                            ForEach(cmds) { cmd in
-                                commandRow(cmd)
-                                    .listRowBackground(Color.clear)
-                                    .listRowInsets(EdgeInsets(
-                                        top: 2, leading: DS.Space.s, bottom: 2, trailing: DS.Space.s))
-                                    .listRowSeparator(.hidden)
-                            }
-                            .onMove { store.move(inGroup: group, fromOffsets: $0, toOffset: $1) }
+        let groups = groupedVisibleCommands
+        return List {
+            if groups.isEmpty {
+                Text(L("没有匹配的命令"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+            ForEach(groups, id: \.group) { entry in
+                Section {
+                    if !collapsedGroups.contains(entry.group) {
+                        ForEach(entry.commands) { cmd in
+                            commandRow(cmd)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets(
+                                    top: 2, leading: DS.Space.s, bottom: 2, trailing: DS.Space.s))
+                                .listRowSeparator(.hidden)
                         }
-                    } header: {
-                        if !group.isEmpty {
-                            groupHeader(group: group, count: cmds.count)
+                        .onMove { offsets, destination in
+                            guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                            store.move(inGroup: entry.group, fromOffsets: offsets, toOffset: destination)
                         }
+                    }
+                } header: {
+                    if !entry.group.isEmpty {
+                        groupHeader(group: entry.group, count: entry.commands.count)
                     }
                 }
             }
@@ -360,7 +400,7 @@ struct QuickCommandPanelView: View {
 
     private func sendWithConfirmation(_ command: String) {
         guard canSend else { return }
-        if let risk = CommandRiskDetector.detect(in: command) {
+        if let risk = CommandExecutionCoordinator.confirmationRisk(for: command) {
             pendingRisk = risk
             pendingCommand = command
             return

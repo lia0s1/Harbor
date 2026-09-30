@@ -94,6 +94,14 @@ struct KeyManagementView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                     Spacer()
+                    Button {
+                        errorMessage = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("关闭"))
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 6)
@@ -196,6 +204,11 @@ private struct KeyRowView: View {
     let onRefresh: () -> Void
     @State private var addToAgentFeedback: String?
     @State private var showDeleteConfirmation = false
+    @State private var isAddingToAgent = false
+    @State private var isDeleting = false
+    @State private var fingerprint: String?
+    @State private var showPassphrasePrompt = false
+    @State private var agentPassphrase = ""
 
     var body: some View {
         HStack(spacing: DS.Space.m) {
@@ -212,6 +225,14 @@ private struct KeyRowView: View {
                     Text(verbatim: key.keyType.label)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let fingerprint {
+                        Text(verbatim: fingerprint)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(fingerprint)
+                    }
                     if key.hasPubKey {
                         Text(verbatim: ".pub")
                             .font(.caption2)
@@ -238,10 +259,12 @@ private struct KeyRowView: View {
 
                 if !key.loadedInAgent {
                     Button(L("添加到 Agent")) {
-                        addToAgent()
+                        agentPassphrase = ""
+                        showPassphrasePrompt = true
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .disabled(isAddingToAgent)
                 }
 
                 if key.hasPubKey {
@@ -269,31 +292,64 @@ private struct KeyRowView: View {
             Button(L("删除"), role: .destructive) {
                 deleteKey()
             }
+            .disabled(isDeleting)
         } message: {
             Text(L("删除 %@？此操作无法撤销。", key.fileName))
         }
+        .alert(L("添加到 Agent"), isPresented: $showPassphrasePrompt) {
+            SecureField(L("密钥密码"), text: $agentPassphrase, prompt: Text(verbatim: L("无密码密钥留空")))
+            Button(L("添加")) { addToAgent(passphrase: agentPassphrase) }
+            Button(L("取消"), role: .cancel) { }
+        } message: {
+            Text(L("加密私钥需输入其密码；无密码密钥直接留空。"))
+        }
+        .task {
+            guard key.hasPubKey else { return }
+            let path = key.pubKeyPath
+            let output = await AuxProcess.run(
+                argv: ["/usr/bin/ssh-keygen", "-lf", path],
+                timeout: 5
+            )
+            guard output.exitCode == 0 else { return }
+            let first = output.stdoutText.split(separator: "\n").first.map(String.init) ?? ""
+            let parts = first.split(separator: " ", omittingEmptySubsequences: true)
+            if parts.count >= 2 { fingerprint = String(parts[1]) }
+        }
     }
 
-    private func addToAgent() {
+    private func addToAgent(passphrase: String) {
+        guard !isAddingToAgent else { return }
+        isAddingToAgent = true
         Task {
+            defer { isAddingToAgent = false }
+            // ssh-add prompts for an encrypted key's passphrase through
+            // SSH_ASKPASS; unencrypted keys never prompt, so the same helper
+            // path serves both. AuxProcess.run REPLACES the inherited
+            // environment when one is supplied, so SSH_AUTH_SOCK must be
+            // merged back or ssh-add cannot find the agent at all.
+            guard let helper = SecureAskpassHelper(secret: passphrase) else {
+                addToAgentFeedback = L("无法准备密钥认证助手。")
+                return
+            }
+            defer { helper.cleanup() }
+            var environment = helper.environment
+            if let sock = ProcessInfo.processInfo.environment["SSH_AUTH_SOCK"] {
+                environment["SSH_AUTH_SOCK"] = sock
+            }
             let result = await AuxProcess.run(
                 argv: ["/usr/bin/ssh-add", key.fullPath],
+                environment: environment,
                 timeout: 10
             )
-            await MainActor.run {
-                if result.exitCode == 0 {
-                    addToAgentFeedback = L("已添加")
-                    onRefresh()
-                } else {
-                    let msg = result.stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    addToAgentFeedback = msg.isEmpty ? L("添加失败") : msg
-                }
-                // Auto-clear feedback after 3 seconds
-                Task {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    addToAgentFeedback = nil
-                }
+            if result.exitCode == 0 {
+                addToAgentFeedback = L("已添加")
+                onRefresh()
+            } else {
+                let msg = result.stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
+                addToAgentFeedback = msg.isEmpty ? L("添加失败") : msg
             }
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            addToAgentFeedback = nil
         }
     }
 
@@ -310,6 +366,9 @@ private struct KeyRowView: View {
     }
 
     private func deleteKey() {
+        guard !isDeleting else { return }
+        isDeleting = true
+        defer { isDeleting = false }
         let urls = [
             URL(fileURLWithPath: key.fullPath),
             URL(fileURLWithPath: key.pubKeyPath)
@@ -453,6 +512,7 @@ private struct GenerateKeySheet: View {
                     Button(L("取消"), role: .cancel) { isPresented = false }
                         .buttonStyle(.glass)
                         .keyboardShortcut(.cancelAction)
+                        .disabled(isGenerating)
                     Button(L("生成")) { generate() }
                         .buttonStyle(.glassProminent)
                         .keyboardShortcut(.defaultAction)
@@ -559,7 +619,7 @@ func scanSSHDirectory(sshDir: String) -> [SSHKeyInfo] {
 
         // Check if it's a private key by reading first line
         guard let handle = FileHandle(forReadingAtPath: fullPath) else { continue }
-        defer { try? handle.closeFile() }
+        defer { handle.closeFile() }
         guard let headData = try? handle.read(upToCount: 256) else { continue }
         let header = String(decoding: headData, as: UTF8.self)
         let firstLine = header.split(separator: "\n").first.map(String.init) ?? ""

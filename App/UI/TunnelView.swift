@@ -36,6 +36,20 @@ struct TunnelView: View {
                 }
             } header: {
                 header
+            } footer: {
+                if let error = manager.lastError {
+                    HStack(spacing: 6) {
+                        Text(verbatim: error)
+                            .foregroundStyle(.red)
+                        Button {
+                            manager.lastError = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .help(L("关闭"))
+                    }
+                }
             }
         }
         .formStyle(.grouped)
@@ -80,13 +94,22 @@ struct TunnelView: View {
     /// session exists, add/remove the forward on the running connection too.
     private func applyEnabled(_ tunnel: TunnelConfiguration, _ enabled: Bool) {
         guard let exec else { return }
+        // Ignore / revert a second tap while the ControlMaster call is in flight.
+        if manager.isBusy(tunnel.id) {
+            if let index = tunnels.firstIndex(where: { $0.id == tunnel.id }) {
+                tunnels[index].enabled = !enabled
+            }
+            return
+        }
         // Use the freshest copy from the array (label/ports may have changed).
         let config = tunnels.first { $0.id == tunnel.id } ?? tunnel
         Task {
-            if enabled {
-                await manager.activate(config, using: exec)
-            } else {
-                await manager.deactivate(config, using: exec)
+            let ok = enabled
+                ? await manager.activate(config, using: exec)
+                : await manager.deactivate(config, using: exec)
+            guard tunnels.contains(where: { $0.id == config.id }) else { return }
+            if !ok, let index = tunnels.firstIndex(where: { $0.id == config.id }) {
+                tunnels[index].enabled = !enabled
             }
         }
     }
@@ -154,6 +177,7 @@ private struct TunnelRow: View {
             .labelsHidden()
             .toggleStyle(.switch)
             .controlSize(.mini)
+            .disabled(status == .activating)
 
             Menu {
                 Button(action: onEdit) {
@@ -168,6 +192,7 @@ private struct TunnelRow: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .disabled(status == .activating)
         }
         .padding(.vertical, 2)
         .alert(L("删除隧道"), isPresented: $confirmDelete) {

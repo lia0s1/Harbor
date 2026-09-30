@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import HarborKit
 import UniformTypeIdentifiers
+import ImageIO
 
 /// App settings (Cmd+,): 外观 (window appearance + terminal theme cards) and
 /// 终端 (font, size, option-as-meta). Everything is backed by @AppStorage and
@@ -249,14 +250,14 @@ private struct ThemeCard: View {
 // MARK: - 终端
 
 private struct TerminalSettingsView: View {
-    @AppStorage("terminalFontName") private var terminalFontName = "Menlo"
-    @AppStorage("terminalFontSize") private var terminalFontSize = 13.0
+    @AppStorage(TerminalFontPreference.fontNameKey) private var terminalFontName = TerminalFontPreference.defaultFontName
+    @AppStorage(TerminalFontPreference.fontSizeKey) private var terminalFontSize = TerminalFontPreference.defaultFontSize
     @AppStorage("optionAsMeta") private var optionAsMeta = true
-    @AppStorage("useMetalRenderer") private var useMetalRenderer = true
+    @AppStorage("useMetalRenderer") private var useMetalRenderer = false
     @AppStorage("themeID") private var themeID = TerminalTheme.defaultThemeID
     @AppStorage(TerminalBackgroundPreference.storageKey) private var backgroundRaw = ""
 
-    private static let fontSizeRange = 9.0...24.0
+    private static let fontSizeRange = TerminalFontPreference.minFontSize...TerminalFontPreference.maxFontSize
 
     /// Monospaced font families installed on this machine. `static` so the
     /// enumeration runs once for the app's lifetime, not on every rebuild of
@@ -289,11 +290,11 @@ private struct TerminalSettingsView: View {
                     }
                 }
 
-                Stepper(value: $terminalFontSize, in: TerminalSettingsView.fontSizeRange, step: 1) {
+                Stepper(value: $terminalFontSize, in: TerminalSettingsView.fontSizeRange, step: 0.5) {
                     HStack {
                         Text(verbatim: L("字号"))
                         Spacer()
-                        Text("\(Int(terminalFontSize)) pt")
+                        Text("\(String(format: "%.1f", terminalFontSize)) pt")
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
@@ -361,10 +362,10 @@ private struct TerminalBackgroundSection: View {
     /// terminal actually renders, and stays visible on light themes).
     let themeForeground: SwiftUI.Color
 
-    /// The chosen image, decoded once and held here so dragging the opacity /
-    /// blur sliders (which re-render this whole section every frame) doesn't
-    /// re-read and re-decode the file from disk on each frame.
+    /// Tiny thumbnail only. Full wallpaper decode lives in the terminal
+    /// renderer; Settings must not keep a second decoded copy around.
     @State private var cachedWallpaperImage: NSImage?
+    @State private var wallpaperLoadID = UUID()
 
     var body: some View {
         Section("终端背景") {
@@ -406,8 +407,10 @@ private struct TerminalBackgroundSection: View {
                 Button(L("恢复默认背景")) { background.mode = .theme }
             }
         }
-        .onAppear { loadWallpaperImage() }
-        .onChange(of: background.imagePath) { _, _ in loadWallpaperImage() }
+        .onAppear { reloadWallpaperIfNeeded() }
+        .onChange(of: background.imagePath) { _, _ in reloadWallpaperIfNeeded() }
+        .onChange(of: background.mode) { _, _ in reloadWallpaperIfNeeded() }
+        .onDisappear { dropWallpaper() }
     }
 
     @ViewBuilder private var imageControls: some View {
@@ -472,18 +475,50 @@ private struct TerminalBackgroundSection: View {
         )
     }
 
-    private func loadWallpaperImage() {
+    private func reloadWallpaperIfNeeded() {
+        guard background.mode == .image else {
+            dropWallpaper()
+            return
+        }
+        loadWallpaperPreview()
+    }
+
+    private func dropWallpaper() {
+        wallpaperLoadID = UUID()
+        cachedWallpaperImage = nil
+    }
+
+    private func loadWallpaperPreview() {
         let path = background.imagePath
         guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else {
             cachedWallpaperImage = nil
             return
         }
+        let token = UUID()
+        wallpaperLoadID = token
         Task {
-            let image = await Task.detached(priority: .userInitiated) {
-                NSImage(contentsOfFile: path)
+            let preview = await Task.detached(priority: .userInitiated) {
+                Self.makePreview(at: path)
             }.value
-            cachedWallpaperImage = image
+            guard wallpaperLoadID == token else { return }
+            cachedWallpaperImage = preview
         }
+    }
+
+    /// Decode only a ~104px thumbnail so Settings never holds the full bitmap.
+    private static func makePreview(at path: String) -> NSImage? {
+        let url = URL(fileURLWithPath: path)
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 104,
+            kCGImageSourceShouldCache: false,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 
     // MARK: Bindings & actions

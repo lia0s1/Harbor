@@ -283,6 +283,37 @@ final class SSHConfigParserTests: XCTestCase {
         XCTAssertTrue(hosts[0].extraArgs.isEmpty)
     }
 
+    func testUnsupportedConnectionDirectivesAreReportedBeforeImport() {
+        let config = """
+        Include ~/.ssh/work.conf
+        Host prod
+            HostName 192.0.2.10
+            ProxyJump bastion
+            HostKeyAlias production-key
+            UserKnownHostsFile ~/.ssh/prod_known_hosts
+            StrictHostKeyChecking yes
+        Host *
+            ServerAliveInterval 30
+        """
+
+        XCTAssertEqual(
+            SSHConfigParser.unsupportedConnectionDirectives(in: config),
+            ["Host pattern", "hostkeyalias", "include", "proxyjump", "serveraliveinterval", "stricthostkeychecking", "userknownhostsfile"]
+        )
+    }
+
+    func testSupportedConcreteConfigHasNoImportPolicyWarning() {
+        let config = """
+        Host web
+            HostName web.example.com
+            User deploy
+            Port 2222
+            IdentityFile ~/.ssh/id_ed25519
+        """
+
+        XCTAssertEqual(SSHConfigParser.unsupportedConnectionDirectives(in: config), [])
+    }
+
     func testParsedHostsBuildValidSSHCommands() throws {
         let config = """
         Host web db

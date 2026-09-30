@@ -80,7 +80,7 @@ struct HelpView: View {
 
             HelpSection(icon: "terminal.fill", color: .green, title: "终端") {
                 HelpRow(keys: ["⌘K"], desc: "清空终端（等同 Ctrl-L + 清除历史滚动区域）")
-                HelpRow(keys: ["⌘D"], desc: "复制当前会话（相同主机再开一个标签页）")
+                HelpRow(keys: ["⌘⇧D"], desc: "复制当前会话（相同主机再开一个标签页）")
                 HelpRow(keys: ["⌘1–⌘9"], desc: "切换标签页")
                 HelpRow(keys: ["⌘W"], desc: "关闭当前标签页")
                 HelpRow(keys: ["Tab"], desc: "在命令输入框自动补全历史命令（最近匹配）")

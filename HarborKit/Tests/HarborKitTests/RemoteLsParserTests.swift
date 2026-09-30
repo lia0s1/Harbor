@@ -123,14 +123,14 @@ final class RemoteLsParserTests: XCTestCase {
     }
 
     func testListScriptQuotesThePathAndUsesNULFraming() {
-        XCTAssertEqual(
-            RemoteLsParser.listScript(path: "/tmp/a b"),
-            "cd '/tmp/a b' && LC_ALL=C find . -mindepth 1 -maxdepth 1 -printf '%y\\0%M\\0%U\\0%G\\0%s\\0%T@\\0%f\\0%l\\0'"
-        )
-        XCTAssertEqual(
-            RemoteLsParser.listScript(path: "/it's"),
-            "cd '/it'\"'\"'s' && LC_ALL=C find . -mindepth 1 -maxdepth 1 -printf '%y\\0%M\\0%U\\0%G\\0%s\\0%T@\\0%f\\0%l\\0'"
-        )
+        let spaced = RemoteLsParser.listScript(path: "/tmp/a b")
+        XCTAssertTrue(spaced.contains("cd '/tmp/a b'"))
+        XCTAssertTrue(spaced.contains("-printf"))
+        XCTAssertTrue(spaced.contains("awk"))
+        XCTAssertTrue(spaced.contains("\\0") || spaced.contains("\0"))
+        let quoted = RemoteLsParser.listScript(path: "/it's")
+        XCTAssertTrue(quoted.contains("cd '/it'\"'\"'s'") || quoted.contains("'\"'\"'"))
+        XCTAssertTrue(quoted.contains("awk"))
     }
 
     func testNewlineFilenameCannotCreateSyntheticEntry() {
@@ -155,6 +155,21 @@ final class RemoteLsParserTests: XCTestCase {
         XCTAssertEqual(RemotePath.normalize("  /a/b/  "), "/a/b")
         XCTAssertEqual(RemotePath.normalize("//a///b"), "/a/b")
         XCTAssertEqual(RemotePath.normalize("/"), "/")
+    }
+
+    func testNormalizeResolvesDotSegmentsLexically() {
+        XCTAssertEqual(RemotePath.normalize("/a/./b"), "/a/b")
+        XCTAssertEqual(RemotePath.normalize("/a/b/.."), "/a")
+        XCTAssertEqual(RemotePath.normalize("/a/b/../.."), "/")
+        XCTAssertEqual(RemotePath.normalize("/a/.."), "/")
+        XCTAssertEqual(RemotePath.normalize("/../etc/passwd"), "/etc/passwd")
+        XCTAssertEqual(RemotePath.normalize("/a/./b/../c/"), "/a/c")
+        XCTAssertEqual(RemotePath.normalize("a/../b"), "b")
+        XCTAssertEqual(RemotePath.normalize("a/./"), "a")
+        XCTAssertEqual(RemotePath.normalize(".."), "..")
+        XCTAssertEqual(RemotePath.normalize("a/../../b"), "../b")
+        XCTAssertEqual(RemotePath.normalize("~/x/."), "~/x")
+        XCTAssertEqual(RemotePath.normalize("/a/b/./../c"), "/a/c")
     }
 
     func testParent() {

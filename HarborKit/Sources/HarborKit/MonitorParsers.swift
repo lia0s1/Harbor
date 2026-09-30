@@ -93,16 +93,30 @@ public struct NetworkInterfaceCounters: Equatable, Sendable {
     }
 }
 
-/// One real filesystem from `df -kP` (1024-byte blocks).
+/// One real filesystem from `df` (1024-byte blocks).
 public struct DiskUsage: Equatable, Sendable {
     public let mount: String
     public let totalKB: UInt64
     public let availableKB: UInt64
+    /// Source device (e.g. "/dev/vda1"); empty when the remote df row had no
+    /// parseable device column.
+    public let device: String
+    /// Filesystem type from `df -T` (e.g. "ext4"); empty when the remote df
+    /// has no type column (busybox / no -T support).
+    public let fstype: String
+    /// True for Docker-style overlay rows surfaced by the container fallback
+    /// (shown as 容器 overlay, never presented as a host disk).
+    public let isContainerOverlay: Bool
 
-    public init(mount: String, totalKB: UInt64, availableKB: UInt64) {
+    public init(mount: String, totalKB: UInt64, availableKB: UInt64,
+                device: String = "", fstype: String = "",
+                isContainerOverlay: Bool = false) {
         self.mount = mount
         self.totalKB = totalKB
         self.availableKB = availableKB
+        self.device = device
+        self.fstype = fstype
+        self.isContainerOverlay = isContainerOverlay
     }
 
     public var usedKB: UInt64 { totalKB > availableKB ? totalKB - availableKB : 0 }
@@ -231,7 +245,7 @@ public enum MonitorParsers {
         "cat /proc/stat",
         "cat /proc/meminfo",
         "cat /proc/net/dev",
-        "df -kP",
+        "df -kPT 2>/dev/null || df -kP",
         "LC_ALL=C ps -eo pid,user:16,pcpu,rss,comm --sort=-pcpu | head -16",
         "cat /proc/diskstats",
     ].joined(separator: "; echo \(sectionSeparator); ")
@@ -442,29 +456,73 @@ public enum MonitorParsers {
         return result
     }
 
-    /// `df -kP` (POSIX: one line per filesystem, 1024-blocks). Filters
+    /// `df` output (1024-byte blocks, with or without `-T`). Filters
     /// tmpfs/devtmpfs/overlay/loop pseudo-mounts and /proc-ish mount points
-    /// (shared with `SystemInfoParser` via `ProcText`); dedupes by mount point
-    /// (first wins). Mount points may contain spaces.
+    /// (shared with `SystemInfoParser` via `ProcText`), plus `fuse.*` FUSE
+    /// mounts (rclone/sshfs/…); dedupes by mount point (first wins). Mount
+    /// points may contain spaces.
     public static func parseDF(_ text: String) -> [DiskUsage] {
         var result: [DiskUsage] = []
         var seenMounts: Set<String> = []
         for line in text.split(separator: "\n") {
-            let fields = tokens(of: String(line))
-            // Filesystem 1024-blocks Used Available Capacity Mounted-on…
-            guard fields.count >= 6,
-                  let totalKB = UInt64(fields[1]),
-                  let availableKB = UInt64(fields[3])
-            else { continue } // header or malformed line
-            let device = fields[0]
-            let mount = fields[5...].joined(separator: " ")
-            guard ProcText.isRealFilesystem(device: device, mount: mount),
-                  !seenMounts.contains(mount)
+            guard let row = parseDFRow(String(line)) else { continue }
+            guard !row.device.hasPrefix("fuse."),
+                  ProcText.isRealFilesystem(device: row.device, mount: row.mount),
+                  !seenMounts.contains(row.mount)
             else { continue }
-            seenMounts.insert(mount)
-            result.append(DiskUsage(mount: mount, totalKB: totalKB, availableKB: availableKB))
+            seenMounts.insert(row.mount)
+            result.append(row)
         }
         return result
+    }
+
+    /// The container fallback: only the Docker-style overlay rows of the `df`
+    /// section. Used when every real mount was filtered out (a merged/container
+    /// root is the only filesystem the host reports), so the disk card can show
+    /// them labeled 容器 overlay instead of 暂无磁盘数据. The rows keep the
+    /// container's reported sizes and are flagged `isContainerOverlay`.
+    public static func parseContainerOverlayDisks(fromPayload payload: String) -> [DiskUsage] {
+        let sections = splitSections(payload)
+        guard sections.indices.contains(Section.df.rawValue) else { return [] }
+        var result: [DiskUsage] = []
+        var seenMounts: Set<String> = []
+        for line in sections[Section.df.rawValue].split(separator: "\n") {
+            guard let row = parseDFRow(String(line)),
+                  row.device == "overlay" || row.device == "overlayfs",
+                  !seenMounts.contains(row.mount)
+            else { continue }
+            seenMounts.insert(row.mount)
+            result.append(DiskUsage(
+                mount: row.mount, totalKB: row.totalKB, availableKB: row.availableKB,
+                device: row.device,
+                fstype: row.fstype.isEmpty ? "overlay" : row.fstype,
+                isContainerOverlay: true
+            ))
+        }
+        return result
+    }
+
+    /// One `df` line in either output shape. With `-T`:
+    /// `Filesystem Type 1024-blocks Used Available Capacity Mounted-on…`;
+    /// without: `Filesystem 1024-blocks Used Available Capacity Mounted-on…`.
+    /// The remote side may be busybox (no `-T`) or emit either shape regardless
+    /// of the flags we passed, so each line is classified by whether its second
+    /// column is numeric — no filesystem type and no device name is a bare
+    /// number. Returns nil for headers and malformed lines.
+    private static func parseDFRow(_ line: String) -> DiskUsage? {
+        let fields = tokens(of: line)
+        if fields.count >= 6, let totalKB = UInt64(fields[1]) {
+            guard let availableKB = UInt64(fields[3]) else { return nil }
+            return DiskUsage(mount: fields[5...].joined(separator: " "),
+                             totalKB: totalKB, availableKB: availableKB,
+                             device: fields[0])
+        }
+        guard fields.count >= 7, let totalKB = UInt64(fields[2]),
+              let availableKB = UInt64(fields[4])
+        else { return nil }
+        return DiskUsage(mount: fields[6...].joined(separator: " "),
+                         totalKB: totalKB, availableKB: availableKB,
+                         device: fields[0], fstype: fields[1])
     }
 
     /// `ps -eo pid,user,pcpu,rss,comm --sort=-pcpu | head -16`: header + rows.

@@ -75,11 +75,17 @@ final class SystemInfoService: ObservableObject {
         if case .idle = state { fetch() }
     }
 
-    /// Drops any in-flight probe and resets to idle (called when the view that
-    /// owns this service goes away, e.g. the sheet is dismissed).
-    func cancel() {
+    /// Drops any in-flight probe and the structured report. Session teardown
+    /// calls this so a closed tab cannot keep the parsed dump in RAM.
+    func stop() {
         fetchTask?.cancel()
         fetchTask = nil
+        state = .idle
+    }
+
+    /// Alias for `stop()` — SessionManager already calls `cancel()` on detach.
+    func cancel() {
+        stop()
     }
 
     private func ingest(_ result: AuxProcess.Output) {

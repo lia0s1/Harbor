@@ -4,6 +4,12 @@ import HarborKit
 
 // MARK: - Script library
 
+/// Posted (object: nil) after a script has been sent to the terminal; the
+/// main window flashes a brief HUD and the library sheet dismisses itself.
+extension Notification.Name {
+    static let harborScriptSent = Notification.Name("dev.zero.Harbor.scriptSent")
+}
+
 /// The full script/snippet library: a persistent, searchable collection of
 /// reusable shell scripts the user organizes into categories and sends to any
 /// terminal session. Sidebar of categories on the left, the scripts in the
@@ -14,6 +20,8 @@ import HarborKit
 /// here updates at high frequency, and the rows use cheap flat surfaces.
 struct ScriptLibraryView: View {
     @ObservedObject var store: ScriptStore
+    @EnvironmentObject private var sessionManager: SessionManager
+    @Environment(\.dismiss) private var dismiss
     /// Sends the (variable-substituted) script to the active terminal session.
     let send: (String) -> Void
 
@@ -31,6 +39,7 @@ struct ScriptLibraryView: View {
     }
 
     @State private var selection: CategorySelection = .all
+    @State private var selectedSnippetID: ScriptSnippet.ID?
     @State private var searchText = ""
     @State private var editorTarget: ScriptEditorView.Target?
     @State private var varPrompt: VariablePrompt?
@@ -40,6 +49,10 @@ struct ScriptLibraryView: View {
     @State private var deleteCategoryTarget: String?
     @State private var pendingRisk: CommandRisk?
     @State private var pendingCommand = ""
+
+    private var canSend: Bool {
+        sessionManager.selectedSession?.state == .running
+    }
 
     var body: some View {
         HSplitView {
@@ -60,9 +73,12 @@ struct ScriptLibraryView: View {
         }
         .alert(L("确认发送高风险命令"), isPresented: pendingRiskPresented) {
             Button(L("仍然发送"), role: .destructive) {
-                send(pendingCommand)
-                pendingRisk = nil
-                pendingCommand = ""
+                defer {
+                    pendingRisk = nil
+                    pendingCommand = ""
+                }
+                guard canSend else { return }
+                finishSend(pendingCommand)
             }
             Button(L("取消"), role: .cancel) {
                 pendingRisk = nil
@@ -157,10 +173,11 @@ struct ScriptLibraryView: View {
         VStack(spacing: 0) {
             detailToolbar
             Divider()
-            if visibleSnippets.isEmpty {
+            let snippets = visibleSnippets
+            if snippets.isEmpty {
                 emptyState
             } else {
-                scriptList
+                scriptList(snippets)
             }
         }
         .background(DS.Colors.chromeBackground)
@@ -217,22 +234,49 @@ struct ScriptLibraryView: View {
         .padding(.vertical, DS.Space.s)
     }
 
-    private var scriptList: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: DS.Space.xs) {
-                ForEach(visibleSnippets) { snippet in
-                    ScriptRow(
-                        snippet: snippet,
-                        showCategory: showsCategoryTag,
-                        onSend: { runSend(snippet) },
-                        onEdit: { editorTarget = .edit(snippet) },
-                        onDuplicate: { store.duplicate(snippet) },
-                        onDelete: { deleteTarget = snippet }
-                    )
+    private func scriptList(_ snippets: [ScriptSnippet]) -> some View {
+        List(selection: $selectedSnippetID) {
+            ForEach(snippets) { snippet in
+                ScriptRow(
+                    snippet: snippet,
+                    showCategory: showsCategoryTag,
+                    canSend: canSend,
+                    onSend: { runSend(snippet) },
+                    onEdit: { editorTarget = .edit(snippet) },
+                    onDuplicate: { store.duplicate(snippet) },
+                    onDelete: { deleteTarget = snippet }
+                )
+                .tag(snippet.id)
+                .contextMenu {
+                    Button(L("发送到终端")) { runSend(snippet) }
+                        .disabled(!canSend)
+                    Divider()
+                    Button(L("编辑…")) { editorTarget = .edit(snippet) }
+                    Button(L("复制")) { store.duplicate(snippet) }
+                    Divider()
+                    Button(L("删除"), role: .destructive) { deleteTarget = snippet }
                 }
+                .onTapGesture(count: 2) { runSend(snippet) }
             }
-            .padding(DS.Space.s)
         }
+        .listStyle(.inset)
+        .overlay(alignment: .center) { returnKeySender }
+    }
+
+    /// Invisible Return-key hotkey: sends the selected snippet. Disabled while
+    /// the search field owns the input so searching isn't hijacked.
+    private var returnKeySender: some View {
+        Button {
+            guard !searchActive, canSend, let id = selectedSnippetID,
+                  let snippet = visibleSnippets.first(where: { $0.id == id }) else { return }
+            runSend(snippet)
+        } label: {
+            EmptyView()
+        }
+        .keyboardShortcut(.return, modifiers: [])
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private var emptyState: some View {
@@ -297,6 +341,7 @@ struct ScriptLibraryView: View {
 
     /// Sends a script — prompting for `{{name}}` variables first when present.
     private func runSend(_ snippet: ScriptSnippet) {
+        guard canSend else { return }
         if snippet.hasVariables {
             varPrompt = VariablePrompt(snippet: snippet)
         } else {
@@ -305,12 +350,22 @@ struct ScriptLibraryView: View {
     }
 
     private func sendWithConfirmation(_ command: String) {
-        if let risk = CommandRiskDetector.detect(in: command) {
+        guard canSend else { return }
+        if let risk = CommandExecutionCoordinator.confirmationRisk(for: command) {
             pendingRisk = risk
             pendingCommand = command
             return
         }
+        finishSend(command)
+    }
+
+    /// Delivers the command, flashes the terminal HUD, and closes the library
+    /// sheet so the sent command is visible in the terminal.
+    private func finishSend(_ command: String) {
         send(command)
+        pendingCommand = ""
+        NotificationCenter.default.post(name: .harborScriptSent, object: nil)
+        dismiss()
     }
 
     private func beginNewCategory() {
@@ -400,6 +455,7 @@ struct ScriptLibraryView: View {
 private struct ScriptRow: View {
     let snippet: ScriptSnippet
     let showCategory: Bool
+    var canSend = true
     let onSend: () -> Void
     let onEdit: () -> Void
     let onDuplicate: () -> Void
@@ -447,7 +503,8 @@ private struct ScriptRow: View {
             .controlSize(.small)
             .tint(.accentColor)
             .fixedSize()
-            .help(L("发送到终端"))
+            .disabled(!canSend)
+            .help(canSend ? L("发送到终端") : L("会话未运行，无法发送"))
 
             Menu {
                 Button(L("编辑…"), action: onEdit)
@@ -464,7 +521,6 @@ private struct ScriptRow: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .opacity(isHovering ? 1 : 0.35)
         }
         .padding(.horizontal, DS.Space.s)
         .padding(.vertical, DS.Space.s)

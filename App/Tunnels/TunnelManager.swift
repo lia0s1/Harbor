@@ -20,9 +20,12 @@ final class TunnelManager: ObservableObject {
 
     /// Live status per tunnel id. A missing id means `.inactive`.
     @Published private(set) var statuses: [UUID: Status] = [:]
+    /// Last activate/deactivate failure; cleared on success or dismiss.
+    @Published var lastError: String?
 
     func status(for id: UUID) -> Status { statuses[id] ?? .inactive }
     func isActive(_ id: UUID) -> Bool { status(for: id) == .active }
+    func isBusy(_ id: UUID) -> Bool { status(for: id) == .activating }
 
     /// Directly sets a tunnel's status (for callers that drive activation
     /// through their own mechanism instead of `activate(_:using:)`).
@@ -39,6 +42,7 @@ final class TunnelManager: ObservableObject {
     /// touch the remote: the connection carrying the forwards is already gone.
     func markAllInactive() {
         statuses.removeAll()
+        lastError = nil
     }
 
     // MARK: - Connect-time arguments
@@ -74,16 +78,33 @@ final class TunnelManager: ObservableObject {
         }
         statuses[tunnel.id] = .activating
         let ok = await exec.enableForward(tunnel.portForward)
+        // Deleted while in flight — do not resurrect the row's status.
+        guard statuses[tunnel.id] == .activating else { return ok }
         statuses[tunnel.id] = ok ? .active : .failed
+        lastError = ok ? nil : L("端口转发启用失败")
         return ok
     }
 
     /// Removes the tunnel from the live connection (`ssh -O cancel`). Marks it
-    /// `.inactive` on success; leaves the prior status untouched on failure.
+    /// `.inactive` on success; returns to `.active` on failure (the forward is
+    /// still bound) and records `lastError` so the banner can clear.
     @discardableResult
     func deactivate(_ tunnel: TunnelConfiguration, using exec: RemoteExec) async -> Bool {
+        switch statuses[tunnel.id] {
+        case .activating: return false
+        case .inactive, nil: return true
+        default: break
+        }
+        statuses[tunnel.id] = .activating
         let ok = await exec.disableForward(tunnel.portForward)
-        if ok { statuses[tunnel.id] = .inactive }
+        guard statuses[tunnel.id] == .activating else { return ok }
+        if ok {
+            statuses[tunnel.id] = .inactive
+            lastError = nil
+        } else {
+            statuses[tunnel.id] = .active
+            lastError = L("端口转发关闭失败")
+        }
         return ok
     }
 

@@ -119,8 +119,81 @@ final class HarborMCPTests: XCTestCase {
         XCTAssertTrue(argv.contains("Compression=yes"))
     }
 
+    func testMCPRequiresJSONRPCAndCompleteInitializationBeforeTools() throws {
+        let server = try makeServer()
+
+        let wrongJSONRPC = try XCTUnwrap(server.handle([
+            "jsonrpc": "1.0",
+            "id": 1,
+            "method": "tools/list",
+        ]))
+        XCTAssertEqual(try rpcErrorCode(wrongJSONRPC), -32600)
+
+        let preInitializeList = try XCTUnwrap(server.handle([
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+        ]))
+        XCTAssertEqual(try rpcErrorCode(preInitializeList), -32600)
+
+        let preInitializeCall = try XCTUnwrap(server.handle([
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": ["name": "list_hosts"] as [String: Any],
+        ]))
+        XCTAssertEqual(try rpcErrorCode(preInitializeCall), -32600)
+
+        let missingInitializeFields = try XCTUnwrap(server.handle([
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "initialize",
+            "params": ["protocolVersion": "2024-11-05"] as [String: Any],
+        ]))
+        XCTAssertEqual(try rpcErrorCode(missingInitializeFields), -32602)
+
+        let unsupportedVersion = try XCTUnwrap(server.handle([
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "initialize",
+            "params": initializeParams(protocolVersion: "2025-03-26"),
+        ]))
+        XCTAssertEqual(try rpcErrorCode(unsupportedVersion), -32602)
+        let unsupportedError = try XCTUnwrap(unsupportedVersion["error"] as? [String: Any])
+        let unsupportedData = try XCTUnwrap(unsupportedError["data"] as? [String: Any])
+        XCTAssertEqual(unsupportedData["supported"] as? [String], ["2024-11-05"])
+        XCTAssertEqual(unsupportedData["requested"] as? String, "2025-03-26")
+
+        let initializeResponse = try XCTUnwrap(server.handle(initializeRequest(id: 6)))
+        let initializeResult = try XCTUnwrap(initializeResponse["result"] as? [String: Any])
+        XCTAssertEqual(initializeResult["protocolVersion"] as? String, "2024-11-05")
+
+        let beforeInitializedNotification = try XCTUnwrap(server.handle([
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/list",
+        ]))
+        XCTAssertEqual(try rpcErrorCode(beforeInitializedNotification), -32600)
+
+        XCTAssertNil(server.handle([
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        ]))
+
+        let toolsResponse = try XCTUnwrap(server.handle([
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/list",
+        ]))
+        XCTAssertNotNil(toolsResponse["result"])
+
+        let repeatedInitialize = try XCTUnwrap(server.handle(initializeRequest(id: 9)))
+        XCTAssertEqual(try rpcErrorCode(repeatedInitialize), -32600)
+    }
+
     func testToolFailuresUseMCPIsErrorAndInvalidParamsUseRPCError() throws {
         let server = try makeServer()
+        try initializeServer(server)
         let toolResponse = try XCTUnwrap(server.handle([
             "jsonrpc": "2.0",
             "id": 1,
@@ -142,6 +215,7 @@ final class HarborMCPTests: XCTestCase {
 
     func testDefaultAuthorizationExposesNoRemoteTools() throws {
         let server = try makeServer(hosts: [SSHHost(name: "alpha", hostname: "example.test")])
+        try initializeServer(server)
         XCTAssertEqual(try toolNames(server), [])
 
         let result = server.callTool("run_command", args: [
@@ -161,6 +235,7 @@ final class HarborMCPTests: XCTestCase {
             allowsWriteFile: false
         )
         let server = try makeServer(hosts: [alpha, beta], authorization: readOnly)
+        try initializeServer(server)
 
         XCTAssertEqual(
             try toolNames(server),
@@ -196,6 +271,7 @@ final class HarborMCPTests: XCTestCase {
             allowsWriteFile: true
         )
         let destructiveServer = try makeServer(hosts: [alpha], authorization: destructive)
+        try initializeServer(destructiveServer)
         XCTAssertEqual(
             try toolNames(destructiveServer),
             Set(["list_hosts", "list_files", "read_file", "get_system_info", "run_command", "write_file"])
@@ -282,7 +358,9 @@ final class HarborMCPTests: XCTestCase {
 
         XCTAssertEqual(request.input, Data(content.utf8))
         XCTAssertTrue(request.command.contains("mktemp"))
-        XCTAssertTrue(request.command.contains("mv -f"))
+        XCTAssertTrue(request.command.contains("ln -fn"))
+        XCTAssertTrue(request.command.contains("ln -fT"))
+        XCTAssertFalse(request.command.contains("mv -f"))
         XCTAssertTrue(request.command.contains("-L \"$target\""))
         let result = try server.exec(
             argv: ["/bin/sh", "-c", request.command],
@@ -291,6 +369,35 @@ final class HarborMCPTests: XCTestCase {
         )
         XCTAssertEqual(result.status, 0, result.err)
         XCTAssertEqual(try Data(contentsOf: target), request.input)
+    }
+
+    func testAtomicWriteRefusesDirectoryTarget() throws {
+        let server = try makeServer()
+        let directory = try temporaryDirectory()
+        let target = directory.appendingPathComponent("target-dir")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let marker = directory.appendingPathComponent("sentinel")
+        try Data("keep".utf8).write(to: marker)
+
+        let request = try server.remoteWriteRequest([
+            "host": "alpha",
+            "path": target.path,
+            "content": "should-not-land",
+        ])
+        let result = try server.exec(
+            argv: ["/bin/sh", "-c", request.command],
+            stdin: request.input,
+            timeout: 2
+        )
+        XCTAssertNotEqual(result.status, 0, result.err)
+
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+
+        let dropped = try FileManager.default.contentsOfDirectory(atPath: target.path)
+        XCTAssertTrue(dropped.isEmpty, "wrote inside directory: \(dropped)")
+        XCTAssertEqual(try String(contentsOf: marker, encoding: .utf8), "keep")
     }
 
     func testHostStoreAndWriteContentHaveHardLimits() throws {
@@ -323,6 +430,41 @@ final class HarborMCPTests: XCTestCase {
             limits: limits,
             authorization: authorization
         )
+    }
+
+    private func initializeParams(protocolVersion: String = "2024-11-05") -> [String: Any] {
+        [
+            "protocolVersion": protocolVersion,
+            "capabilities": [:] as [String: Any],
+            "clientInfo": [
+                "name": "HarborMCPTests",
+                "version": "1.0.0",
+            ] as [String: Any],
+        ]
+    }
+
+    private func initializeRequest(id: Int) -> [String: Any] {
+        [
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "initialize",
+            "params": initializeParams(),
+        ]
+    }
+
+    private func initializeServer(_ server: MCPServer) throws {
+        let response = try XCTUnwrap(server.handle(initializeRequest(id: 0)))
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["protocolVersion"] as? String, "2024-11-05")
+        XCTAssertNil(server.handle([
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        ]))
+    }
+
+    private func rpcErrorCode(_ response: [String: Any]) throws -> Int {
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        return try XCTUnwrap(error["code"] as? Int)
     }
 
     private func toolNames(_ server: MCPServer) throws -> Set<String> {

@@ -22,4 +22,69 @@ final class CommandRiskTests: XCTestCase {
         XCTAssertNil(CommandRiskDetector.detect(in: "journalctl -u nginx -f"))
         XCTAssertNil(CommandRiskDetector.detect(in: "docker ps"))
     }
+
+    func testTokenAwareDetectorHandlesOptionsWhitespaceAndWrappers() {
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "docker    system     prune -af"),
+            .containerOrClusterDeletion
+        )
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "docker --context production system prune --all"),
+            .containerOrClusterDeletion
+        )
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "sudo systemctl --system restart sshd"),
+            .systemLifecycle
+        )
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "kill -s KILL 123"),
+            .processTermination
+        )
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "kill --signal=SIGKILL 123"),
+            .processTermination
+        )
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "env TMPDIR=/tmp rm -fr cache"),
+            .destructiveFiles
+        )
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "sh -c 'kubectl delete pod api-1'"),
+            .containerOrClusterDeletion
+        )
+    }
+
+    func testQuoteAndCommentTextDoesNotBecomeACommand() {
+        XCTAssertNil(CommandRiskDetector.detect(in: "echo 'rm -rf /'"))
+        XCTAssertNil(CommandRiskDetector.detect(in: "printf '%s\\n' 'docker system prune'"))
+        XCTAssertNil(CommandRiskDetector.detect(in: "# systemctl --system restart sshd"))
+        XCTAssertNil(CommandRiskDetector.detect(in: "docker run --rm example/image"))
+    }
+
+    func testSeparatorsAndCommandSubstitutionsStillInspectExecutedCommands() {
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "printf ready && docker system prune -af"),
+            .containerOrClusterDeletion
+        )
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "echo $(kill -s KILL 123)"),
+            .processTermination
+        )
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "echo \"$(rm -rf /tmp/example)\""),
+            .destructiveFiles
+        )
+        XCTAssertEqual(
+            CommandRiskDetector.detect(in: "echo \"`docker system prune -af`\""),
+            .containerOrClusterDeletion
+        )
+    }
+
+    func testCoordinatorRequiresConfirmationForDetectedRiskOnly() {
+        XCTAssertEqual(
+            CommandExecutionCoordinator.decision(for: "kill -s KILL 123"),
+            .requiresConfirmation(.processTermination)
+        )
+        XCTAssertEqual(CommandExecutionCoordinator.decision(for: "docker ps"), .execute)
+    }
 }

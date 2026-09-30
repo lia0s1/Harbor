@@ -13,7 +13,18 @@ final class RDPConnection: ObservableObject, Identifiable {
     @Published private(set) var errorMessage: String?
 
     private var process: Process?
-    private var processExited = false
+    /// A Process has been handed to the background launcher but has not yet
+    /// been published on the main actor. A disconnect in this interval must
+    /// wait for that hand-off instead of letting app termination race it.
+    private var launchInProgress = false
+    /// A TERM/KILL sequence is in flight. Multiple callers (for example a tab
+    /// close followed by app quit) join the same bounded cleanup rather than
+    /// treating a nil `process` as proof that the child is gone.
+    private var terminationInProgress = false
+    private var terminationCompletions: [@Sendable () -> Void] = []
+    /// Set as soon as the user disconnects, including the short interval before
+    /// the background launcher has returned a Process to the main actor.
+    private var disconnectRequested = false
     /// Called with the host ID when the connection exits cleanly (not on error,
     /// so the red dot stays visible until the user explicitly disconnects).
     var onExit: (@MainActor (UUID) -> Void)?
@@ -23,37 +34,88 @@ final class RDPConnection: ObservableObject, Identifiable {
         self.host = host
     }
 
-    func disconnect() {
-        guard let p = process else { return }
+    func disconnect(completion: @escaping @Sendable () -> Void = {}) {
+        disconnectRequested = true
+        guard let p = process else {
+            isRunning = false
+            if launchInProgress || terminationInProgress {
+                terminationCompletions.append(completion)
+            } else {
+                completion()
+            }
+            return
+        }
+        terminate(p, completion: completion)
+    }
+
+    fileprivate func markLaunching() {
+        launchInProgress = true
+    }
+
+    private func terminate(_ p: Process, completion: @escaping @Sendable () -> Void = {}) {
+        if terminationInProgress {
+            terminationCompletions.append(completion)
+            return
+        }
+        terminationInProgress = true
+        terminationCompletions.append(completion)
         process = nil
         isRunning = false
-        processExited = false
         p.terminate() // SIGTERM
         let pid = p.processIdentifier
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard let self, !self.processExited else { return }
-            kill(pid, SIGKILL)
+        // Retain the connection and Process through the escalation window. The
+        // session manager may have removed it from its dictionary already, but
+        // that must not turn a TERM-resistant child into an orphan.
+        DispatchQueue.global(qos: .utility).async { [self, p] in
+            let deadline = Date().addingTimeInterval(3)
+            while p.isRunning && Date() < deadline {
+                usleep(20_000)
+            }
+            if p.isRunning && pid > 0 {
+                kill(pid, SIGKILL)
+            }
+            p.waitUntilExit()
+            Task { @MainActor [self] in
+                finishTermination()
+            }
         }
     }
 
+    private func finishTermination() {
+        guard terminationInProgress || !terminationCompletions.isEmpty else { return }
+        terminationInProgress = false
+        let completions = terminationCompletions
+        terminationCompletions.removeAll()
+        for completion in completions { completion() }
+    }
+
     fileprivate func markRunning(_ process: Process) {
+        launchInProgress = false
+        // `disconnect()` can run while RDPService is still in Process.run() on
+        // its launch queue. Never publish a process that was cancelled during
+        // that window: terminate and reap it instead.
+        if disconnectRequested {
+            terminate(process)
+            return
+        }
         self.process = process
         self.isRunning = true
         self.errorMessage = nil
     }
 
     fileprivate func markFailed(_ message: String) {
-        processExited = true
+        launchInProgress = false
         self.process = nil
         self.isRunning = false
         self.errorMessage = message
+        finishTermination()
     }
 
     fileprivate func markExited() {
-        processExited = true
+        launchInProgress = false
         self.process = nil
         self.isRunning = false
+        finishTermination()
         onExit?(id)
     }
 }
@@ -196,7 +258,12 @@ final class RDPService {
 
         // Process.run() is a synchronous fork+exec; run off the main actor so
         // a slow freerdp launch (probe, DNS) never stalls the UI.
-        DispatchQueue.global(qos: .userInitiated).async { [weak connection] in
+        // Keep the connection alive through the launch hand-off. If the UI
+        // removes it during this interval, its cancellation bit still reaches
+        // markRunning and the just-started child is terminated instead of
+        // becoming orphaned.
+        connection.markLaunching()
+        DispatchQueue.global(qos: .userInitiated).async {
             do {
                 try process.run()
                 if !password.isEmpty {
@@ -205,11 +272,11 @@ final class RDPService {
                 }
                 stdinPipe.fileHandleForWriting.closeFile()
                 Task { @MainActor in
-                    connection?.markRunning(process)
+                    connection.markRunning(process)
                 }
             } catch {
                 Task { @MainActor in
-                    connection?.markFailed("无法启动 freerdp：\(error.localizedDescription)")
+                    connection.markFailed("无法启动 freerdp：\(error.localizedDescription)")
                 }
             }
         }

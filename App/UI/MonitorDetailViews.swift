@@ -2,10 +2,10 @@ import SwiftUI
 import Charts
 import HarborKit
 
-/// Which stat card's detail panel is shown. Tapping a CPU / 内存 / 进程 / 网络
-/// card in `MonitorPanel` presents `MonitorDetailSheet` for the matching kind.
+/// Which stat card's detail panel is shown. Tapping a CPU / 内存 / 进程 / 网络 /
+/// 磁盘 card in `MonitorPanel` presents `MonitorDetailSheet` for the matching kind.
 enum MonitorDetailKind: String, Identifiable {
-    case cpu, memory, process, network, ports, forwarding
+    case cpu, memory, process, network, ports, disk, forwarding
     var id: String { rawValue }
 }
 
@@ -75,6 +75,7 @@ struct MonitorDetailSheet: View {
         case .process: ProcessDetailView(monitor: monitor)
         case .network: NetworkDetailView(monitor: monitor)
         case .ports: PortsDetailView(monitor: monitor)
+        case .disk: DiskDetailView(monitor: monitor)
         case .forwarding:
             if let forwarding {
                 ForwardingDetailView(service: forwarding)
@@ -93,6 +94,7 @@ struct MonitorDetailSheet: View {
         case .process: return L("进程详情")
         case .network: return L("网络详情")
         case .ports: return L("监听端口")
+        case .disk: return L("磁盘详情")
         case .forwarding: return L("端口转发")
         }
     }
@@ -104,6 +106,7 @@ struct MonitorDetailSheet: View {
         case .process: return "list.bullet.rectangle"
         case .network: return "arrow.up.arrow.down"
         case .ports: return "network"
+        case .disk: return "internaldrive"
         case .forwarding: return "arrow.triangle.swap"
         }
     }
@@ -195,5 +198,96 @@ struct SegmentedBar: View {
                 }
             }
             .frame(height: 10)
+    }
+}
+
+// MARK: - Disk
+
+/// Per-mount disk table for the 磁盘 detail sheet: one row per real filesystem
+/// (device, mount point, type, total/used/available, fill %), root first.
+struct DiskDetailView: View {
+    @ObservedObject var monitor: MonitorService
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.l) {
+            if sortedDisks.isEmpty {
+                Text(L("暂无磁盘数据"))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                DetailSection(L("挂载点")) { table }
+            }
+        }
+    }
+
+    /// Root first (the row users scan for), then alphabetical by mount point.
+    private var sortedDisks: [DiskUsage] {
+        (monitor.snapshot?.disks ?? []).sorted { a, b in
+            if (a.mount == "/") != (b.mount == "/") { return a.mount == "/" }
+            return a.mount < b.mount
+        }
+    }
+
+    private var table: some View {
+        VStack(spacing: DS.Space.m) {
+            headerRow
+            ForEach(sortedDisks, id: \.mount) { disk in
+                VStack(spacing: 4) {
+                    dataRow(disk)
+                    UsageBar(
+                        fraction: disk.usedFraction,
+                        tint: usageTint(disk.usedFraction * 100),
+                        height: 4
+                    )
+                }
+            }
+        }
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: DS.Space.s) {
+            Text(L("设备")).frame(width: 72, alignment: .leading)
+            Text(L("挂载点")).frame(width: 82, alignment: .leading)
+            Text(L("文件系统类型")).frame(width: 62, alignment: .leading)
+            Text(L("总量")).frame(width: 46, alignment: .trailing)
+            Text(L("已用")).frame(width: 46, alignment: .trailing)
+            Text(L("可用")).frame(width: 46, alignment: .trailing)
+            Text(L("使用%")).frame(width: 34, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+    }
+
+    private func dataRow(_ disk: DiskUsage) -> some View {
+        HStack(spacing: DS.Space.s) {
+            Text(disk.device.isEmpty ? "—" : disk.device)
+                .font(.system(size: 10, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(disk.device)
+                .frame(width: 72, alignment: .leading)
+            Text(disk.isContainerOverlay ? L("容器 overlay") : disk.mount)
+                .font(.system(size: 10, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(disk.mount)
+                .frame(width: 82, alignment: .leading)
+            Text(disk.fstype.isEmpty ? "—" : disk.fstype)
+                .font(.system(size: 10))
+                .lineLimit(1)
+                .frame(width: 62, alignment: .leading)
+            sizeText(MonitorFormat.sizeShort(kb: disk.totalKB))
+            sizeText(MonitorFormat.sizeShort(kb: disk.usedKB))
+            sizeText(MonitorFormat.sizeShort(kb: disk.availableKB))
+            Text(MonitorFormat.percent(disk.usedFraction * 100))
+                .font(.system(size: 10).monospacedDigit())
+                .frame(width: 34, alignment: .trailing)
+        }
+    }
+
+    private func sizeText(_ value: String) -> some View {
+        Text(value)
+            .font(.system(size: 10).monospacedDigit())
+            .frame(width: 46, alignment: .trailing)
     }
 }

@@ -86,12 +86,25 @@ public class LocalProcess {
     
     var io: DispatchIO?
 
-    private let usesMainQueue: Bool
+    /// Keep a bounded amount of output waiting for the UI/delegate queue.  A
+    /// remote terminal can write arbitrarily fast while the main thread is
+    /// blocked by layout, a sheet, or a debugger; an unbounded array here turns
+    /// that into an application-wide memory exhaustion.
+    private let pendingByteLimit = 8 * 1024 * 1024
     private let pendingChunkFlushThreshold = 32
-    private let pendingTimeSliceNs: UInt64 = 4_000_000
+    private let pendingTimeSliceNs: UInt64 = 12_000_000
+    static let droppedOutputMarker = Array(
+        "\r\n[Harbor: terminal output was dropped because the UI could not keep up.]\r\n".utf8
+    )
     private var pendingChunks: [[UInt8]] = []
     private var pendingChunkIndex: Int = 0
+    private var pendingBytes = 0
     private var pendingScheduled = false
+    /// Once full, discard new output until the existing backlog has drained,
+    /// then inject one visible marker before accepting more.  This avoids both
+    /// unbounded memory and a misleading terminal that silently loses output.
+    private var pendingOutputDropped = false
+    private var pendingDropMarkerPending = false
     private let pendingLock = NSLock()
     
     #if false //canImport(Subprocess)
@@ -114,12 +127,17 @@ public class LocalProcess {
         self.delegate = delegate
         self.dispatchQueue = dispatchQueue ?? DispatchQueue.main
         self.readQueue = DispatchQueue(label: "sender")
-        self.usesMainQueue = self.dispatchQueue === DispatchQueue.main
     }
 
     private func enqueueReceivedData(_ bytes: [UInt8]) {
         pendingLock.lock()
-        pendingChunks.append(bytes)
+        if pendingOutputDropped || bytes.count > pendingByteLimit - pendingBytes {
+            pendingOutputDropped = true
+            pendingDropMarkerPending = true
+        } else {
+            pendingChunks.append(bytes)
+            pendingBytes += bytes.count
+        }
         let shouldSchedule = !pendingScheduled
         if shouldSchedule {
             pendingScheduled = true
@@ -140,13 +158,24 @@ public class LocalProcess {
             if pendingChunkIndex < pendingChunks.count {
                 chunk = pendingChunks[pendingChunkIndex]
                 pendingChunkIndex += 1
+                pendingBytes -= chunk?.count ?? 0
                 if pendingChunkIndex >= pendingChunkFlushThreshold {
                     pendingChunks.removeFirst(pendingChunkIndex)
                     pendingChunkIndex = 0
                 }
+            } else if pendingDropMarkerPending {
+                // The queued, pre-overflow output has been delivered.  Make the
+                // drop explicit to the user before resuming normal delivery.
+                pendingChunks.removeAll(keepingCapacity: true)
+                pendingChunkIndex = 0
+                pendingBytes = 0
+                pendingDropMarkerPending = false
+                pendingOutputDropped = false
+                chunk = Self.droppedOutputMarker
             } else {
                 pendingChunks.removeAll(keepingCapacity: true)
                 pendingChunkIndex = 0
+                pendingBytes = 0
                 pendingScheduled = false
                 pendingLock.unlock()
                 return
@@ -273,16 +302,10 @@ public class LocalProcess {
                 }
             }
         })
-        if usesMainQueue {
-            enqueueReceivedData(b)
-        } else {
-            // async — was .sync, which could deadlock if dispatchQueue
-            // ever blocks on readQueue (the queue this handler runs on).
-            // The I/O chain continues via io.read below regardless.
-            dispatchQueue.async {
-                self.delegate?.dataReceived(slice: b[...])
-            }
-        }
+        // Route every delegate queue through the same bounded FIFO.  A custom
+        // queue previously received one unbounded DispatchQueue.async work item
+        // per PTY chunk, which could grow just as badly as the main-queue path.
+        enqueueReceivedData(b)
         io?.read(offset: 0, length: readSize, queue: readQueue, ioHandler: childProcessRead)
     }
 

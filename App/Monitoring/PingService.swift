@@ -22,6 +22,10 @@ final class PingService: ObservableObject {
     var averageMs: Double? { pingFrame.averageMs }
 
     @Published private(set) var isRunning = false
+    /// Last fatal ping problem (binary missing / could not launch / repeated
+    /// dead attempts), surfaced by the latency card. Cleared on the first
+    /// successful reply and by stop().
+    @Published private(set) var lastError: String?
 
     private let hostname: String
     // nonisolated(unsafe) so deinit can access these without dispatching to
@@ -37,11 +41,21 @@ final class PingService: ObservableObject {
     /// Increases on every (re)launch so stale pipe callbacks from a previous
     /// ping process can be ignored.
     private var generation = 0
+    /// Attempts that ended without a single reply; drives `lastError`.
+    private var consecutiveFailures = 0
 
-    private static let executablePath = "/usr/bin/ping"
+    /// macOS ships ping in /sbin (or /usr/sbin), not /usr/bin — probe instead
+    /// of hardcoding, else fork/exec throws ENOENT forever.
+    private static let pingCandidates = ["/sbin/ping", "/usr/sbin/ping", "/usr/bin/ping"]
+    private static let ping6Candidates = ["/sbin/ping6", "/usr/sbin/ping6"]
+    private static let maxConsecutiveFailures = 3
     private static let maxSamples = 90
     private static let initialBackoff: TimeInterval = 2
     private static let maxBackoff: TimeInterval = 30
+
+    private static func resolveExecutable(_ candidates: [String]) -> String? {
+        candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
 
     init(hostname: String) {
         self.hostname = hostname.trimmingCharacters(in: .whitespaces)
@@ -63,10 +77,13 @@ final class PingService: ObservableObject {
               }) else { return }
         active = true
         backoffSeconds = Self.initialBackoff
+        consecutiveFailures = 0
+        lastError = nil
         launch()
     }
 
-    func stop() {
+    func pause() {
+        guard active || process != nil else { return }
         active = false
         restartTask?.cancel()
         restartTask = nil
@@ -77,17 +94,34 @@ final class PingService: ObservableObject {
         }
         process = nil
         isRunning = false
+        lineBuffer = ""
+    }
+
+    func stop() {
+        pause()
+        pingFrame = PingFrame()
+        lastError = nil
     }
 
     // MARK: - Process lifecycle
 
     private func launch() {
         guard active, process == nil else { return }
+        // An IPv6 literal needs ping6; /sbin/ping is IPv4-only.
+        let wantsPing6 = hostname.contains(":")
+        guard let executablePath = Self.resolveExecutable(
+            wantsPing6 ? Self.ping6Candidates : Self.pingCandidates)
+        else {
+            lastError = L(wantsPing6 ? "ping6 不可用：未找到可执行文件"
+                                     : "ping 不可用：未找到可执行文件")
+            scheduleRestart()
+            return
+        }
         generation += 1
         let launchGeneration = generation
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: Self.executablePath)
+        proc.executableURL = URL(fileURLWithPath: executablePath)
         proc.arguments = [hostname]
         proc.standardInput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
@@ -116,7 +150,7 @@ final class PingService: ObservableObject {
                 try proc.run()
             } catch {
                 Task { @MainActor [weak self] in
-                    self?.scheduleRestart()
+                    self?.launchFailed(error)
                 }
                 return
             }
@@ -147,6 +181,27 @@ final class PingService: ObservableObject {
         isRunning = false
         lineBuffer = ""
         guard active else { return }
+        noteAttemptWithoutReply()
+    }
+
+    /// One attempt ended without a single reply (ping exited — DNS failure,
+    /// unreachable host). After `maxConsecutiveFailures` in a row the latency
+    /// card shows it instead of the eternal 等待 ping 响应.
+    private func noteAttemptWithoutReply() {
+        guard active else { return }
+        consecutiveFailures += 1
+        if consecutiveFailures >= Self.maxConsecutiveFailures, lastError == nil {
+            lastError = L("ping 无响应，正在重试")
+        }
+        scheduleRestart()
+    }
+
+    /// `proc.run()` threw — a launch failure is deterministic, so surface it
+    /// immediately (the restart loop keeps trying in the background).
+    private func launchFailed(_ error: Error) {
+        guard active else { return }
+        lastError = L("无法启动 ping：%@", error.localizedDescription)
+        consecutiveFailures += 1
         scheduleRestart()
     }
 
@@ -181,8 +236,11 @@ final class PingService: ObservableObject {
     }
 
     private func record(_ ms: Double) {
-        // A successful reply proves the route works: reset the backoff.
+        // A successful reply proves the route works: reset the backoff and
+        // any surfaced failure.
         backoffSeconds = Self.initialBackoff
+        consecutiveFailures = 0
+        if lastError != nil { lastError = nil }
         var next = pingFrame
         next.currentMs = ms
         next.latencySum += ms

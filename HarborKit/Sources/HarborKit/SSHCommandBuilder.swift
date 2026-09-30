@@ -26,13 +26,17 @@ public enum SSHCommandError: Error, Equatable, LocalizedError {
 public enum SSHCommandBuilder {
     public static let executablePath = "/usr/bin/ssh"
 
-    /// Default options applied to every connection. `ConnectTimeout=10` bounds
+    /// Default options applied to every connection. `StrictHostKeyChecking=ask`
+    /// is first so it overrides a user's `~/.ssh/config` `no` / `accept-new`
+    /// (OpenSSH first-obtained-value wins) while still prompting on unknown
+    /// hosts and failing on changed keys. `ConnectTimeout=10` bounds
     /// the TCP/connection establishment so an unreachable host fails in ~10s
     /// instead of the ~75s system default — fast failure feedback, and it lets
     /// the auto-reconnect backoff escalate and give up correctly (a host that
     /// took 75s to fail would defeat any reasonable stability window). It only
     /// caps connection setup, never the interactive auth wait (password/2FA).
     public static let defaultOptions: [String] = [
+        "-o", "StrictHostKeyChecking=ask",
         "-o", "ServerAliveInterval=30",
         "-o", "ConnectTimeout=10",
     ]
@@ -80,7 +84,27 @@ public enum SSHCommandBuilder {
            !identity.isEmpty {
             try validateNoLeadingDash(identity, field: "identityFile")
             try validateNoControlCharacters(identity, field: "identityFile")
-            args.append(contentsOf: ["-i", identity])
+            // Do not let unrelated identities loaded in ssh-agent leak to the
+            // destination or be tried opportunistically. Because OpenSSH uses
+            // the first value it sees for this option, this precedes any safe
+            // user-supplied extra args as well.
+            args.append(contentsOf: ["-o", "IdentitiesOnly=yes", "-i", identity])
+        }
+
+        let jump = host.proxyJump.trimmingCharacters(in: .whitespaces)
+        if !jump.isEmpty {
+            // -J takes one [user@]host[:port] spec (comma-separated chain);
+            // validate() rejects leading dashes and whitespace/control chars.
+            try validate(jump, field: "proxyJump")
+            args.append(contentsOf: ["-J", jump])
+        }
+
+        // ForwardingService treats rules present in this launch argv as live
+        // from the first UI frame. Make that state trustworthy: without this,
+        // ssh can continue an interactive session after a listener failed to
+        // bind and the UI would report a forward that never existed.
+        if !host.portForwards.isEmpty {
+            args.append(contentsOf: ["-o", "ExitOnForwardFailure=yes"])
         }
 
         for forward in host.portForwards {
@@ -90,7 +114,7 @@ public enum SSHCommandBuilder {
         try validateExtraArgs(host.extraArgs)
         args.append(contentsOf: host.extraArgs)
 
-        args.append(destination(for: host))
+        args.append(try validatedDestination(for: host))
 
         // Custom remote shell (e.g. powershell.exe / cmd.exe for Windows SSH).
         // SSH does not allocate a PTY when a remote command is given; `-t` forces
@@ -121,6 +145,21 @@ public enum SSHCommandBuilder {
         let hostname = host.hostname.trimmingCharacters(in: .whitespaces)
         let username = host.username.trimmingCharacters(in: .whitespaces)
         return username.isEmpty ? hostname : "\(username)@\(hostname)"
+    }
+
+    /// Same `[user@]host` shape as `destination(for:)`, after the hostname /
+    /// username checks that `arguments(for:)` already applies.
+    public static func validatedDestination(for host: SSHHost) throws -> String {
+        let hostname = host.hostname.trimmingCharacters(in: .whitespaces)
+        guard !hostname.isEmpty else { throw SSHCommandError.emptyHostname }
+        try validate(hostname, field: "hostname")
+
+        let username = host.username.trimmingCharacters(in: .whitespaces)
+        if !username.isEmpty {
+            try validate(username, field: "username")
+        }
+
+        return destination(for: host)
     }
 
     // MARK: - Auxiliary (multiplexed) commands
@@ -202,7 +241,7 @@ public enum SSHCommandBuilder {
         let bindPrefix: String
         if let bind = forward.bindAddress?.trimmingCharacters(in: .whitespaces), !bind.isEmpty {
             try validate(bind, field: "bindAddress")
-            bindPrefix = "\(bind):"
+            bindPrefix = "\(forwardEndpointHost(bind)):"
         } else {
             bindPrefix = ""
         }
@@ -220,8 +259,18 @@ public enum SSHCommandBuilder {
                 throw SSHCommandError.invalidPort(forward.targetPort)
             }
             let flag = forward.kind == .local ? "-L" : "-R"
-            return [flag, "\(bindPrefix)\(forward.bindPort):\(target):\(forward.targetPort)"]
+            return [flag, "\(bindPrefix)\(forward.bindPort):\(forwardEndpointHost(target)):\(forward.targetPort)"]
         }
+    }
+
+    /// SSH forwarding syntax needs IPv6 literals bracketed so their colons do
+    /// not collide with the surrounding `bindPort:host:targetPort` separators.
+    /// Preserve an already bracketed literal to avoid producing `[[::1]]`.
+    private static func forwardEndpointHost(_ host: String) -> String {
+        guard host.contains(":"), !(host.hasPrefix("[") && host.hasSuffix("]")) else {
+            return host
+        }
+        return "[\(host)]"
     }
 
     // MARK: - Live forward control

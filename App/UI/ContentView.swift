@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var isScriptLibraryOpen = false
     @State private var isRecordingPlayerOpen = false
     @State private var isWorkspaceManagerOpen = false
+    @State private var showScriptSentHUD = false
 
     var body: some View {
         mainContent
@@ -36,6 +37,24 @@ struct ContentView: View {
                   columnVisibility == .detailOnly else { return }
             QuickConnectFocus.requestPending()
             columnVisibility = .all
+        }
+        .onAppear {
+            sessionManager.setPanelVisibility(
+                fileVisible: filePanelVisible,
+                monitorVisible: monitorPanelVisible
+            )
+        }
+        .onChange(of: filePanelVisible) { _, visible in
+            sessionManager.setPanelVisibility(
+                fileVisible: visible,
+                monitorVisible: monitorPanelVisible
+            )
+        }
+        .onChange(of: monitorPanelVisible) { _, visible in
+            sessionManager.setPanelVisibility(
+                fileVisible: filePanelVisible,
+                monitorVisible: visible
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .harborFocusFind)) { _ in
             // ⌘F always works: if the command strip is hidden, show it so
@@ -80,6 +99,26 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .harborRecordingPlayer)) { _ in
             isRecordingPlayerOpen = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .harborScriptSent)) { _ in
+            showScriptSentHUD = true
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_600_000_000)
+                showScriptSentHUD = false
+            }
+        }
+        .overlay(alignment: .top) {
+            if showScriptSentHUD {
+                Label(L("已发送到终端"), systemImage: "paperplane.fill")
+                    .font(.callout.weight(.medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(.regularMaterial))
+                    .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.35)))
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.spring(duration: 0.3), value: showScriptSentHUD)
+            }
         }
         .modifier(ToolSheetsModifier(
             isScriptLibraryOpen: $isScriptLibraryOpen,
@@ -152,13 +191,13 @@ private struct HostStoreErrorAlert: ViewModifier {
 
     func body(content: Content) -> some View {
         content.alert(
-            "主机存储出错",
+            L("主机存储出错"),
             isPresented: Binding(
                 get: { hostStore.lastError != nil },
                 set: { if !$0 { hostStore.lastError = nil } }
             )
         ) {
-            Button("好", role: .cancel) { hostStore.lastError = nil }
+            Button(L("好"), role: .cancel) { hostStore.lastError = nil }
         } message: {
             Text(hostStore.lastError ?? "")
         }
@@ -170,13 +209,13 @@ private struct SessionConnectionErrorAlert: ViewModifier {
 
     func body(content: Content) -> some View {
         content.alert(
-            "无法连接",
+            L("无法连接"),
             isPresented: Binding(
                 get: { sessionManager.connectionError != nil },
                 set: { if !$0 { sessionManager.connectionError = nil } }
             )
         ) {
-            Button("好", role: .cancel) { sessionManager.connectionError = nil }
+            Button(L("好"), role: .cancel) { sessionManager.connectionError = nil }
         } message: {
             Text(sessionManager.connectionError ?? "")
         }
@@ -193,28 +232,28 @@ private struct ContentToolbar: ToolbarContent {
             Button {
                 isWorkspaceManagerOpen = true
             } label: {
-                Label("工作区", systemImage: "rectangle.3.group")
+                Label(L("工作区"), systemImage: "rectangle.3.group")
             }
-            .help("保存或恢复工作区")
+            .help(L("保存或恢复工作区"))
 
             Button {
                 filePanelVisible.toggle()
             } label: {
-                Label("文件面板", systemImage: "folder")
+                Label(L("文件面板"), systemImage: "folder")
             }
             .help(filePanelVisible ? L("隐藏文件面板 (⌘J)") : L("显示文件面板 (⌘J)"))
 
             Button {
                 monitorPanelVisible.toggle()
             } label: {
-                Label("监控面板", systemImage: "sidebar.right")
+                Label(L("监控面板"), systemImage: "sidebar.right")
             }
             .help(monitorPanelVisible ? L("隐藏监控面板 (⌘I)") : L("显示监控面板 (⌘I)"))
         }
 
         ToolbarItem(placement: .primaryAction) {
             SettingsLink {
-                Label("设置", systemImage: "gearshape")
+                Label(L("设置"), systemImage: "gearshape")
             }
             .help(L("设置 (⌘,)"))
         }

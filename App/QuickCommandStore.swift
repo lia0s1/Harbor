@@ -32,16 +32,39 @@ final class QuickCommandStore: JSONFileStore<QuickCommand> {
     /// Folder names present in the library, in first-appearance order. Commands
     /// without a group are bucketed under "" (ungrouped) by the UI.
     var groups: [String] {
+        groupedCommands().map(\.group)
+    }
+
+    /// One linear pass: group names in first-appearance order plus the commands
+    /// in each group. Avoids the previous "filter the whole array per group".
+    func groupedCommands(in source: [QuickCommand]? = nil) -> [(group: String, commands: [QuickCommand])] {
+        let items = source ?? commands
         var seen = Set<String>()
         var ordered: [String] = []
-        for command in commands {
+        var buckets: [String: [QuickCommand]] = [:]
+        for command in items {
             let group = command.group.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !seen.contains(group) {
-                seen.insert(group)
+            if seen.insert(group).inserted {
                 ordered.append(group)
+                buckets[group] = [command]
+            } else {
+                buckets[group, default: []].append(command)
             }
         }
-        return ordered
+        return ordered.map { (group: $0, commands: buckets[$0] ?? []) }
+    }
+
+    /// Case-insensitive match on title, command, or group. Empty query returns
+    /// the live store array (no extra copy).
+    func search(_ query: String) -> [QuickCommand] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return commands }
+        return commands.filter {
+            $0.title.localizedCaseInsensitiveContains(q)
+                || $0.command.localizedCaseInsensitiveContains(q)
+                || $0.group.localizedCaseInsensitiveContains(q)
+                || $0.displayTitle.localizedCaseInsensitiveContains(q)
+        }
     }
 
     // MARK: - JSONFileStore hooks

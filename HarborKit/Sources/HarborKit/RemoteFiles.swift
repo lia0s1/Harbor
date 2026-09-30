@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 // MARK: - Model
 
@@ -45,6 +46,85 @@ public struct RemoteFileEntry: Equatable, Sendable, Identifiable {
     }
 }
 
+// MARK: - POSIX permission modes
+
+/// A POSIX permission mode as rendered by GNU `find %M` / `ls -l`.
+///
+/// The execute positions may render as `s`/`S` (set-user-ID or set-group-ID)
+/// and `t`/`T` (sticky).  Those special bits must be represented separately:
+/// treating every non-`-` character as execute silently turns `S`/`T` into an
+/// executable bit and drops the special bit on the next `chmod`.
+public struct POSIXPermissionMode: Equatable, Sendable {
+    private var storage: [Bool]
+
+    /// Owner/group/other read, write, execute bits, in that order.
+    public var rwx: [Bool] {
+        get { storage }
+        set { storage = Self.normalizedRwx(newValue) }
+    }
+
+    public var setUserID: Bool
+    public var setGroupID: Bool
+    public var sticky: Bool
+
+    public init(
+        rwx: [Bool] = [Bool](repeating: false, count: 9),
+        setUserID: Bool = false,
+        setGroupID: Bool = false,
+        sticky: Bool = false
+    ) {
+        self.storage = Self.normalizedRwx(rwx)
+        self.setUserID = setUserID
+        self.setGroupID = setGroupID
+        self.sticky = sticky
+    }
+
+    /// Parses a mode such as `-rwsr-Sr-T`. Invalid or shortened strings
+    /// produce an empty mode rather than guessing at permissions.
+    public init(lsPermissions: String) {
+        let characters = Array(lsPermissions)
+        guard characters.count >= 10 else {
+            self.init()
+            return
+        }
+
+        var rwx = [Bool](repeating: false, count: 9)
+        for index in 0..<9 where index != 2 && index != 5 && index != 8 {
+            rwx[index] = characters[index + 1] != "-"
+        }
+
+        let ownerExecute = characters[3]
+        rwx[2] = ownerExecute == "x" || ownerExecute == "s"
+        let groupExecute = characters[6]
+        rwx[5] = groupExecute == "x" || groupExecute == "s"
+        let otherExecute = characters[9]
+        rwx[8] = otherExecute == "x" || otherExecute == "t"
+
+        self.init(
+            rwx: rwx,
+            setUserID: ownerExecute == "s" || ownerExecute == "S",
+            setGroupID: groupExecute == "s" || groupExecute == "S",
+            sticky: otherExecute == "t" || otherExecute == "T"
+        )
+    }
+
+    /// A four-digit octal mode, including a leading zero when no special bits
+    /// are set (for example, `0755`).
+    public var octal: String {
+        func digit(_ row: Int) -> Int {
+            (storage[row * 3] ? 4 : 0)
+                + (storage[row * 3 + 1] ? 2 : 0)
+                + (storage[row * 3 + 2] ? 1 : 0)
+        }
+        let special = (setUserID ? 4 : 0) + (setGroupID ? 2 : 0) + (sticky ? 1 : 0)
+        return "\(special)\(digit(0))\(digit(1))\(digit(2))"
+    }
+
+    private static func normalizedRwx(_ rwx: [Bool]) -> [Bool] {
+        Array(rwx.prefix(9)) + [Bool](repeating: false, count: max(0, 9 - rwx.count))
+    }
+}
+
 // MARK: - NUL-delimited find parser
 
 /// Parses a fixed-width, NUL-delimited GNU `find` stream. File names may contain
@@ -55,9 +135,14 @@ public enum RemoteLsParser {
     /// has eight NUL-delimited fields: type, mode, uid, gid, size, mtime, name,
     /// and symlink target. POSIX file names cannot contain NUL, so this framing
     /// preserves every valid file name without allowing it to create a fake row.
+    /// Eight NUL fields per entry. Cap the stream so a huge directory cannot
+    /// hang the mux long enough to look like the file pane dropped.
+    public static let maxListFields = 8_000 * 8
+
     public static func listScript(path: String) -> String {
         "cd \(sq(path)) && LC_ALL=C find . -mindepth 1 -maxdepth 1 "
-            + "-printf '%y\\0%M\\0%U\\0%G\\0%s\\0%T@\\0%f\\0%l\\0'"
+            + "-printf '%y\\0%M\\0%U\\0%G\\0%s\\0%T@\\0%f\\0%l\\0' "
+            + "| awk 'BEGIN{RS=\"\\0\";ORS=\"\\0\";n=0} {print; n++; if(n>=\(maxListFields)) exit}'"
     }
 
     public static func parse(_ output: String) -> [RemoteFileEntry] {
@@ -108,11 +193,12 @@ public enum RemoteLsParser {
 
 // MARK: - Remote path helpers
 
-/// Pure string helpers for absolute POSIX paths on the remote side. No "."
-/// or ".." resolution — the shell's `cd` handles those.
+/// Pure string helpers for absolute POSIX paths on the remote side. "." and
+/// ".." segments are resolved lexically — symlinks are never consulted.
 public enum RemotePath {
     /// Trims whitespace, collapses duplicate slashes, strips the trailing
-    /// slash (except for "/"). Empty input becomes "/".
+    /// slash (except for "/"), and lexically resolves "." / ".." segments.
+    /// Empty input becomes "/"; a fully-collapsed relative path becomes ".".
     public static func normalize(_ path: String) -> String {
         var result = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !result.isEmpty else { return "/" }
@@ -122,7 +208,29 @@ public enum RemotePath {
         if result.count > 1, result.hasSuffix("/") {
             result.removeLast()
         }
-        return result
+        let isAbsolute = result.hasPrefix("/")
+        var components: [String] = []
+        for part in result.split(separator: "/") {
+            switch part {
+            case ".":
+                continue
+            case "..":
+                if let last = components.last, last != ".." {
+                    components.removeLast()
+                } else if isAbsolute {
+                    continue
+                } else {
+                    components.append("..")
+                }
+            default:
+                components.append(String(part))
+            }
+        }
+        let joined = components.joined(separator: "/")
+        if isAbsolute {
+            return joined.isEmpty ? "/" : "/" + joined
+        }
+        return joined.isEmpty ? "." : joined
     }
 
     /// Parent directory; "/" is its own parent.
@@ -146,6 +254,150 @@ public enum RemotePath {
             return normalized
         }
         return String(normalized[normalized.index(after: slash)...])
+    }
+}
+
+// MARK: - Safe local transfer staging
+
+/// Local staging primitives for file transfers. `FileManager.fileExists` treats
+/// a dangling symlink as absent, so it must not be used to choose an sftp
+/// destination: a subsequent open can follow the link outside the requested
+/// directory. These helpers stage privately and atomically install with
+/// `RENAME_EXCL` instead.
+public enum LocalTransferStaging {
+    /// Reports every existing directory entry, including a dangling symlink,
+    /// without resolving its final path component.
+    public static func entryExists(at url: URL) -> Bool {
+        var metadata = stat()
+        return url.path.withCString { path in
+            lstat(path, &metadata) == 0
+        }
+    }
+
+    /// Creates a fresh 0700 staging directory directly inside `directory`, so
+    /// its payload can later be atomically renamed onto the same volume.
+    public static func createPrivateDirectory(in directory: URL, label: String) throws -> URL {
+        let staging = directory.appendingPathComponent(
+            ".harbor-\(label)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let manager = FileManager.default
+        try manager.createDirectory(
+            at: staging,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: NSNumber(value: 0o700)]
+        )
+        do {
+            // Reassert the mode and reject a substituted symlink before a child
+            // path is handed to sftp.
+            try manager.setAttributes(
+                [.posixPermissions: NSNumber(value: 0o700)],
+                ofItemAtPath: staging.path
+            )
+            var metadata = stat()
+            let exists = staging.path.withCString { path in
+                lstat(path, &metadata) == 0
+            }
+            let mode = mode_t(metadata.st_mode)
+            guard exists, (mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) else {
+                throw stagingError("Unable to create a safe local staging directory", code: 1)
+            }
+            return staging
+        } catch {
+            try? manager.removeItem(at: staging)
+            throw error
+        }
+    }
+
+    /// A single path component that can be installed next to `directory`.
+    /// `URL.appendingPathComponent` treats `/` as a separator on file URLs, so
+    /// a hostile listing name such as `../Library/LaunchAgents/x.plist` would
+    /// otherwise escape the chosen folder.
+    @discardableResult
+    public static func validatedInstallName(_ name: String) throws -> String {
+        let last = (name as NSString).lastPathComponent
+        let forbidden = CharacterSet.controlCharacters.union(.newlines)
+        guard !name.isEmpty,
+              name != ".",
+              name != "..",
+              !name.contains("/"),
+              !name.contains("\\"),
+              name == last,
+              !name.unicodeScalars.contains(where: { forbidden.contains($0) })
+        else {
+            throw stagingError("Unsafe local destination filename", code: 3)
+        }
+        return name
+    }
+
+    /// Atomically selects a collision-free destination and installs `source`.
+    /// Existing regular files, directories, live symlinks, and dangling symlinks
+    /// are all treated as occupied. `source` must be a sibling-volume staging
+    /// item created by `createPrivateDirectory`. `name` must be a single
+    /// path component — separators and `.`/`..` are rejected.
+    @discardableResult
+    public static func moveStagedItem(
+        at source: URL,
+        named name: String,
+        into directory: URL
+    ) throws -> URL {
+        let filename = try validatedInstallName(name)
+        var counter = 1
+        while counter <= 10_000 {
+            let candidate = candidateURL(for: filename, in: directory, counter: counter)
+            switch try renameExclusively(from: source, to: candidate) {
+            case .moved:
+                return candidate
+            case .destinationExists:
+                counter += 1
+            }
+        }
+        throw stagingError("Unable to select a safe local destination filename", code: 2)
+    }
+
+    private enum ExclusiveRenameResult {
+        case moved
+        case destinationExists
+    }
+
+    /// `renameatx_np(..., RENAME_EXCL)` never follows the final component and
+    /// fails atomically if an entry appeared after the collision check.
+    private static func renameExclusively(from source: URL, to destination: URL) throws -> ExclusiveRenameResult {
+        let result = source.path.withCString { sourcePath in
+            destination.path.withCString { destinationPath in
+                renameatx_np(
+                    AT_FDCWD,
+                    sourcePath,
+                    AT_FDCWD,
+                    destinationPath,
+                    UInt32(RENAME_EXCL)
+                )
+            }
+        }
+        if result == 0 { return .moved }
+        switch errno {
+        case EEXIST, ENOTEMPTY, EISDIR:
+            return .destinationExists
+        default:
+            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            throw POSIXError(code)
+        }
+    }
+
+    private static func candidateURL(for name: String, in directory: URL, counter: Int) -> URL {
+        guard counter > 1 else { return directory.appendingPathComponent(name) }
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        let candidate = ext.isEmpty ? "\(base)-\(counter)" : "\(base)-\(counter).\(ext)"
+        return directory.appendingPathComponent(candidate)
+    }
+
+    private static func stagingError(_ message: String, code: Int) -> NSError {
+        NSError(
+            domain: "HarborKit.LocalTransferStaging",
+            code: code,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
     }
 }
 

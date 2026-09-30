@@ -45,9 +45,9 @@ struct WelcomeGuideView: View {
             title: "效率快捷键",
             subtitle: "掌握这些组合键，事半功倍。",
             features: [
-                GuideFeature(icon: "magnifyingglass.circle.fill", color: .blue, title: "⌘K 快速跳转", desc: "模糊搜索所有已保存主机并连接"),
+                GuideFeature(icon: "magnifyingglass.circle.fill", color: .blue, title: "⌘P 快速跳转", desc: "模糊搜索所有已保存主机并连接"),
                 GuideFeature(icon: "text.badge.checkmark", color: .green, title: "命令条", desc: "底部保存常用命令，一键发送到终端"),
-                GuideFeature(icon: "square.stack.3d.up.fill", color: .orange, title: "⌘B 批量执行", desc: "同一命令同时发送到多台服务器"),
+                GuideFeature(icon: "square.stack.3d.up.fill", color: .orange, title: "⌘⇧B 批量执行", desc: "同一命令同时发送到多台服务器"),
             ]
         ),
     ]
@@ -71,6 +71,11 @@ struct WelcomeGuideView: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 16) {
+                Button(L("跳过")) { dismiss() }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.cancelAction)
+                    .help(L("跳过引导"))
+
                 HStack(spacing: 8) {
                     ForEach(0..<Self.pages.count, id: \.self) { index in
                         Capsule()

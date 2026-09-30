@@ -34,6 +34,15 @@ struct FileEditorView: View {
             guard !hasLoaded else { return }
             load()
         }
+        .onDisappear { dropBuffers() }
+        .onChange(of: service.status) { _, status in
+            if status != .ready {
+                dropBuffers()
+                if phase == .ready || phase == .loading {
+                    phase = .failed(L("会话已结束"))
+                }
+            }
+        }
         .interactiveDismissDisabled(dirty)
         .confirmationDialog(L("有未保存的更改"), isPresented: $discardPresented, titleVisibility: .visible) {
             Button(L("保存"), action: save)
@@ -85,7 +94,7 @@ struct FileEditorView: View {
             Button(L("保存")) { save() }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut("s", modifiers: .command)
-                .disabled(phase != .ready || saving || !dirty)
+                .disabled(phase != .ready || saving || !dirty || service.status != .ready)
             Button(L("完成")) {
                 if dirty { discardPresented = true } else { dismiss() }
             }
@@ -104,7 +113,10 @@ struct FileEditorView: View {
                     .font(.system(size: 24, weight: .light))
                     .foregroundStyle(.tertiary)
                 Text(reason).multilineTextAlignment(.center).foregroundStyle(.secondary)
-                Button(L("重试"), action: load).buttonStyle(.bordered).controlSize(.small)
+                Button(L("重试"), action: load)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(service.status != .ready)
             }
         case .ready:
             TextEditor(text: $content)
@@ -123,7 +135,17 @@ struct FileEditorView: View {
 
     // MARK: Load / save
 
+    private func dropBuffers() {
+        content = ""
+        original = ""
+        remoteVersion = nil
+    }
+
     private func load() {
+        guard service.status == .ready else {
+            phase = .failed(L("会话已结束"))
+            return
+        }
         hasLoaded = true
         phase = .loading
         saveError = nil
@@ -141,7 +163,7 @@ struct FileEditorView: View {
     }
 
     private func save() {
-        guard dirty, !saving, let remoteVersion else { return }
+        guard dirty, !saving, let remoteVersion, service.status == .ready else { return }
         saving = true
         saveError = nil
         let snapshot = content
