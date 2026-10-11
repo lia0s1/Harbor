@@ -898,7 +898,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     private func installTOTPPromptHandling() {
         guard host.connectionProtocol != .local else { return }
-        totpSecretPresent = TOTPStore.load(for: host.id) != nil
+        totpSecretPresent = TOTPStore.hasSecret(for: host.id)
         totpDetector.onPromptDetected = { [weak self] in
             guard let self, self.totpSecretPresent else { return }
             self.totpPromptVisible = true

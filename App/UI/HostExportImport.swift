@@ -20,7 +20,7 @@ enum HostExportImport {
         guard !isBusy else { return }
         let panel = NSSavePanel()
         panel.title = L("导出主机")
-        panel.message = L("把已保存的主机和快捷命令存为一个 .harbor 备份文件。")
+        panel.message = L("把已保存的主机和快捷命令存为一个 .harbor 备份文件。该文件为未加密的明文，包含主机名、用户名、密钥路径等信息，以及快捷命令中可能写入的口令，请妥善保管。")
         panel.allowedContentTypes = [UTType(filenameExtension: "harbor") ?? .json]
         panel.nameFieldStringValue = "Harbor_Backup.harbor"
         panel.prompt = L("导出")
@@ -45,11 +45,16 @@ enum HostExportImport {
                     ) else {
                         return "Failed to create export file"
                     }
+                    // Atomic swap when a backup already exists so a failed write
+                    // never destroys the old file; plain move only when absent.
                     if fm.fileExists(atPath: url.path) {
-                        try fm.removeItem(at: url)
+                        let result = try fm.replaceItemAt(url, withItemAt: temp)
+                        let finalURL = result ?? url
+                        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: finalURL.path)
+                    } else {
+                        try fm.moveItem(at: temp, to: url)
+                        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
                     }
-                    try fm.moveItem(at: temp, to: url)
-                    try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
                     return nil
                 } catch {
                     return error.localizedDescription

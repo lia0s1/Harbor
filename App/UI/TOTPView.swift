@@ -165,7 +165,14 @@ struct TOTPSetupView: View {
 
     private func save() {
         guard canSave else { return }
-        TOTPStore.save(secret: normalizedSecret, for: hostID)
+        // Keychain writes can fail silently in ad-hoc/unsigned builds
+        // (errSecMissingEntitlement). Surface the failure instead of
+        // dismissing and letting the user believe 2FA is configured.
+        guard TOTPStore.save(secret: normalizedSecret, for: hostID) else {
+            testError = L("无法保存到钥匙串。请确认应用已正确签名并具备钥匙串访问权限。")
+            return
+        }
+        testError = nil
         dismiss()
     }
 }

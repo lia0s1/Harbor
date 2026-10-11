@@ -125,10 +125,10 @@ struct HostEditorView: View {
         }
         .frame(width: 520, height: 600)
         .onChange(of: hostname) { _, _ in hostnameWasEdited = true }
-        .onAppear { hasTOTPSecret = TOTPStore.load(for: hostID) != nil }
+        .onAppear { hasTOTPSecret = TOTPStore.hasSecret(for: hostID) }
         .sheet(isPresented: $showTOTPSetup) {
             TOTPSetupView(hostID: hostID, hostName: totpHostName)
-                .onDisappear { hasTOTPSecret = TOTPStore.load(for: hostID) != nil }
+                .onDisappear { hasTOTPSecret = TOTPStore.hasSecret(for: hostID) }
         }
     }
 
