@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 /// bar (play/pause, scrubber, speed, elapsed / total time) below, and an "open"
 /// affordance to pick a recording from `~/Library/Logs/Harbor`.
 struct RecordingPlayerView: View {
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var player = RecordingPlayer()
 
     /// Scrubber state. While the user drags, the slider shows `scrubValue` and
@@ -64,15 +65,13 @@ struct RecordingPlayerView: View {
 
     private var transportBar: some View {
         HStack(spacing: DS.Space.m) {
-            Button { player.togglePlayPause() } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!player.hasRecording)
-            .help(player.isPlaying ? L("暂停") : L("播放"))
+            PlayerIconButton(
+                systemName: player.isPlaying ? "pause.fill" : "play.fill",
+                label: player.isPlaying ? L("暂停") : L("播放"),
+                size: 14,
+                weight: .semibold,
+                disabled: !player.hasRecording
+            ) { player.togglePlayPause() }
 
             Text(timeLabel(player.currentTime))
                 .font(.caption.monospacedDigit())
@@ -88,16 +87,16 @@ struct RecordingPlayerView: View {
 
             speedMenu
 
-            Button { openRecording() } label: {
-                Image(systemName: "folder")
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(L("打开录制文件"))
+            PlayerIconButton(
+                systemName: "folder",
+                label: L("打开录制文件")
+            ) { openRecording() }
 
-            Button {
+            PlayerIconButton(
+                systemName: "magnifyingglass",
+                label: L("搜索录制内容"),
+                disabled: !player.hasRecording
+            ) {
                 searchVisible.toggle()
                 if searchVisible {
                     Task { @MainActor in searchFocused = true }
@@ -105,15 +104,12 @@ struct RecordingPlayerView: View {
                     searchText = ""
                     player.search("")
                 }
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .disabled(!player.hasRecording)
-            .help(L("搜索录制内容"))
+
+            Button(L("完成")) { dismiss() }
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.cancelAction)
+                .help(L("关闭回放"))
         }
         .padding(.horizontal, DS.Space.l)
         .padding(.vertical, DS.Space.s)
@@ -143,29 +139,26 @@ struct RecordingPlayerView: View {
                 searchMatchesMenu
             }
 
-            Button { player.selectPreviousSearchMatch() } label: {
-                Image(systemName: "chevron.up")
-            }
-            .buttonStyle(.plain)
-            .disabled(player.searchMatches.isEmpty)
-            .help(L("查找上一个"))
+            PlayerIconButton(
+                systemName: "chevron.up",
+                label: L("查找上一个"),
+                disabled: player.searchMatches.isEmpty
+            ) { player.selectPreviousSearchMatch() }
 
-            Button { player.selectNextSearchMatch() } label: {
-                Image(systemName: "chevron.down")
-            }
-            .buttonStyle(.plain)
-            .disabled(player.searchMatches.isEmpty)
-            .help(L("查找下一个"))
+            PlayerIconButton(
+                systemName: "chevron.down",
+                label: L("查找下一个"),
+                disabled: player.searchMatches.isEmpty
+            ) { player.selectNextSearchMatch() }
 
-            Button {
+            PlayerIconButton(
+                systemName: "xmark",
+                label: L("关闭查找")
+            ) {
                 searchVisible = false
                 searchText = ""
                 player.search("")
-            } label: {
-                Image(systemName: "xmark")
             }
-            .buttonStyle(.plain)
-            .help(L("关闭查找"))
         }
         .padding(.horizontal, DS.Space.l)
         .padding(.vertical, DS.Space.s)
@@ -274,6 +267,39 @@ struct RecordingPlayerView: View {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Transport controls
+
+/// Bare icon button for the transport / search bars: a plain-styled glyph with
+/// a VoiceOver label, zero-frame press feedback, and a hover tint — so each
+/// control is discoverable and accessible instead of an undifferentiated bare
+/// glyph. Resting tint mirrors `GlassIconButton` (secondary → primary on hover).
+private struct PlayerIconButton: View {
+    let systemName: String
+    let label: String
+    var size: CGFloat = 13
+    var weight: Font.Weight = .medium
+    var disabled: Bool = false
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: size, weight: weight))
+                .foregroundStyle(disabled || !isHovering ? Color.secondary : Color.primary)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pressFeedback()
+        .onHover { isHovering = $0 }
+        .disabled(disabled)
+        .accessibilityLabel(label)
+        .help(label)
     }
 }
 

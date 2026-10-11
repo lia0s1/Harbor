@@ -102,7 +102,7 @@ struct ScriptLibraryView: View {
                     Button(L("新建分组…")) { beginNewCategory() }
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.callout.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 24, height: 22)
                         .contentShape(Rectangle())
@@ -199,17 +199,17 @@ struct ScriptLibraryView: View {
         HStack(spacing: DS.Space.s) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                 TextField(L("搜索脚本…"), text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.callout)
                 if !searchText.isEmpty {
                     Button {
                         searchText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
@@ -282,7 +282,7 @@ struct ScriptLibraryView: View {
     private var emptyState: some View {
         VStack(spacing: DS.Space.s) {
             Image(systemName: searchActive ? "magnifyingglass" : "doc.text")
-                .font(.system(size: 24, weight: .light))
+                .font(.title.weight(.light))
                 .foregroundStyle(.tertiary)
             Text(searchActive ? L("没有匹配的脚本") : L("还没有脚本"))
                 .font(.callout.weight(.medium))
@@ -466,7 +466,7 @@ private struct ScriptRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: DS.Space.s) {
             Image(systemName: "curlybraces.square")
-                .font(.system(size: 15))
+                .font(.title3)
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color.accentColor)
                 .padding(.top, 1)
@@ -474,7 +474,7 @@ private struct ScriptRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     Text(snippet.displayTitle)
-                        .font(.system(size: 12.5, weight: .medium))
+                        .font(.callout.weight(.medium))
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if snippet.hasVariables {
@@ -486,7 +486,7 @@ private struct ScriptRow: View {
                 }
                 if !preview.isEmpty {
                     Text(preview)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .truncationMode(.tail)
@@ -513,7 +513,7 @@ private struct ScriptRow: View {
                 Button(L("删除"), role: .destructive, action: onDelete)
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.callout.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 24, height: 22)
                     .contentShape(Rectangle())
@@ -555,10 +555,10 @@ private struct TagLabel: View {
         HStack(spacing: 2) {
             if let systemImage {
                 Image(systemName: systemImage)
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(.caption2.weight(.semibold))
             }
             Text(text)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .lineLimit(1)
         }
         .foregroundStyle(.secondary)
@@ -612,7 +612,7 @@ private struct ScriptVariableSheet: View {
                     .foregroundStyle(.secondary)
                 ScrollView {
                     Text(prompt.snippet.substitute(values))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -729,14 +729,14 @@ struct ScriptEditorView: View {
         ZStack(alignment: .topLeading) {
             if draft.content.isEmpty {
                 Text(L("在此输入脚本，可多行。用 {{名称}} 定义变量。"))
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 8)
                     .allowsHitTesting(false)
             }
             TextEditor(text: $draft.content)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(.callout, design: .monospaced))
                 .scrollContentBackground(.hidden)
                 .padding(DS.Space.xs)
         }
@@ -762,7 +762,7 @@ struct ScriptEditorView: View {
                     }
                 } label: {
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
                 .menuStyle(.borderlessButton)
@@ -778,7 +778,7 @@ struct ScriptEditorView: View {
         let variables = draft.detectedVariables
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "curlybraces")
-                .font(.system(size: 10))
+                .font(.caption2)
                 .foregroundStyle(.secondary)
             if variables.isEmpty {
                 Text(L("提示：写 {{名称}} 可在发送前提示输入变量。"))

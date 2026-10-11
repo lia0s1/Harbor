@@ -5,6 +5,9 @@ import HarborKit
 
 struct NetworkDetailView: View {
     @ObservedObject var monitor: MonitorService
+    @ScaledMetric(relativeTo: .caption) private var nameFontSize: CGFloat = 11
+    @ScaledMetric(relativeTo: .caption2) private var cellFontSize: CGFloat = 10
+    @ScaledMetric(relativeTo: .callout) private var speedFontSize: CGFloat = 12
 
     var body: some View {
         if let snap = monitor.snapshot, !snap.interfaces.isEmpty {
@@ -67,7 +70,7 @@ struct NetworkDetailView: View {
             ForEach(ordered, id: \.name) { iface in
                 GridRow {
                     Text(iface.name)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: nameFontSize, design: .monospaced))
                         .lineLimit(1).truncationMode(.middle)
                         .help(iface.name)
                     Text(
@@ -75,13 +78,13 @@ struct NetworkDetailView: View {
                         + " / " +
                         MonitorFormat.speed(bytesPerSecond: monitor.rxSpeedSeries[iface.name]?.last ?? 0)
                     )
-                    .font(.system(size: 10).monospacedDigit())
+                    .font(.system(size: cellFontSize).monospacedDigit())
                     Text(
                         MonitorFormat.sizeShort(bytes: Double(iface.txBytes))
                         + " / " +
                         MonitorFormat.sizeShort(bytes: Double(iface.rxBytes))
                     )
-                    .font(.system(size: 10).monospacedDigit())
+                    .font(.system(size: cellFontSize).monospacedDigit())
                     .foregroundStyle(.secondary)
                 }
             }
@@ -92,7 +95,7 @@ struct NetworkDetailView: View {
         HStack(spacing: 3) {
             Image(systemName: arrow).font(.system(size: 9, weight: .bold)).foregroundStyle(color)
             Text(MonitorFormat.speed(bytesPerSecond: value))
-                .font(.system(size: 12).monospacedDigit())
+                .font(.system(size: speedFontSize).monospacedDigit())
         }
     }
 }

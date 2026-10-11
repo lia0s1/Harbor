@@ -539,21 +539,21 @@ struct HostRowView: View, Equatable {
             }
             Spacer(minLength: DS.Space.xs)
             if rdpError {
-                Circle()
-                    .fill(.red)
-                    .frame(width: 7, height: 7)
+                Image(systemName: DS.StatusSymbol.error)
+                    .font(.system(size: 9))
+                    .foregroundStyle(DS.Colors.statusError)
                     .help("RDP 连接出错")
                     .accessibilityLabel("RDP 连接出错")
             } else if rdpRunning {
-                Circle()
-                    .fill(.blue)
-                    .frame(width: 7, height: 7)
+                Image(systemName: DS.StatusSymbol.running)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.blue)
                     .help("Windows 远程桌面正在运行")
                     .accessibilityLabel("Windows 远程桌面正在运行")
             } else if isLive {
-                Circle()
-                    .fill(DS.Colors.statusRunning)
-                    .frame(width: 7, height: 7)
+                Image(systemName: DS.StatusSymbol.running)
+                    .font(.system(size: 9))
+                    .foregroundStyle(DS.Colors.statusRunning)
                     .help("有正在运行的会话")
                     .accessibilityLabel("已连接")
             }

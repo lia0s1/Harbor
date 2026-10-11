@@ -137,6 +137,7 @@ struct DetailStatRow: View {
     let label: String
     let value: String
     let swatch: Color?
+    @ScaledMetric(relativeTo: .caption) private var valueFontSize: CGFloat = 11
     init(_ label: String, _ value: String, swatch: Color? = nil) {
         self.label = label
         self.value = value
@@ -149,7 +150,7 @@ struct DetailStatRow: View {
             }
             Text(label).font(.caption).foregroundStyle(.secondary)
             Spacer(minLength: DS.Space.s)
-            Text(value).font(.system(size: 11).monospacedDigit())
+            Text(value).font(.system(size: valueFontSize).monospacedDigit())
         }
     }
 }
@@ -207,6 +208,7 @@ struct SegmentedBar: View {
 /// (device, mount point, type, total/used/available, fill %), root first.
 struct DiskDetailView: View {
     @ObservedObject var monitor: MonitorService
+    @ScaledMetric(relativeTo: .caption2) private var cellFontSize: CGFloat = 10
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.l) {
@@ -261,33 +263,33 @@ struct DiskDetailView: View {
     private func dataRow(_ disk: DiskUsage) -> some View {
         HStack(spacing: DS.Space.s) {
             Text(disk.device.isEmpty ? "—" : disk.device)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: cellFontSize, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(disk.device)
                 .frame(width: 72, alignment: .leading)
             Text(disk.isContainerOverlay ? L("容器 overlay") : disk.mount)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: cellFontSize, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(disk.mount)
                 .frame(width: 82, alignment: .leading)
             Text(disk.fstype.isEmpty ? "—" : disk.fstype)
-                .font(.system(size: 10))
+                .font(.system(size: cellFontSize))
                 .lineLimit(1)
                 .frame(width: 62, alignment: .leading)
             sizeText(MonitorFormat.sizeShort(kb: disk.totalKB))
             sizeText(MonitorFormat.sizeShort(kb: disk.usedKB))
             sizeText(MonitorFormat.sizeShort(kb: disk.availableKB))
             Text(MonitorFormat.percent(disk.usedFraction * 100))
-                .font(.system(size: 10).monospacedDigit())
+                .font(.system(size: cellFontSize).monospacedDigit())
                 .frame(width: 34, alignment: .trailing)
         }
     }
 
     private func sizeText(_ value: String) -> some View {
         Text(value)
-            .font(.system(size: 10).monospacedDigit())
+            .font(.system(size: cellFontSize).monospacedDigit())
             .frame(width: 46, alignment: .trailing)
     }
 }

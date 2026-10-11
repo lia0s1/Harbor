@@ -91,6 +91,32 @@ enum DS {
         static let large: CGFloat = 14
     }
 
+    /// Motion tokens. Every custom animation references these so timing and
+    /// easing stay coherent instead of each call site inventing its own
+    /// duration/curve (animation was the one visual dimension missing from DS).
+    enum Anim {
+        /// Instant tactile feedback (press / scale) on custom controls.
+        static let press = Animation.easeOut(duration: 0.08)
+        /// Appearance / state transitions: status color, selection, banners.
+        static let state = Animation.easeInOut(duration: 0.18)
+        /// Transient overlays (toasts, HUDs) sliding in and out.
+        static let toast = Animation.spring(response: 0.3, dampingFraction: 0.82)
+        /// Uniform pressed scale for icon buttons (was 0.88 / 0.97 ad hoc).
+        static let pressedScale: CGFloat = 0.92
+    }
+
+    /// Canonical SF Symbol per status so state never reads by color alone
+    /// (color-blind users, grayscale, VoiceOver): pair each with the matching
+    /// status color in `Colors`. Shapes are deliberately distinct — a hollow
+    /// ring (idle), a filled dot (running), a cycle glyph (connecting), and an
+    /// exclamation (error) — so the state is legible without hue.
+    enum StatusSymbol {
+        static let running = "circle.fill"
+        static let connecting = "arrow.triangle.2.circlepath"
+        static let idle = "circle"
+        static let error = "exclamationmark.circle.fill"
+    }
+
     /// Color tokens. Status colors are fixed; surfaces adapt to the window
     /// appearance via semantic AppKit colors.
     enum Colors {
@@ -243,6 +269,7 @@ struct HostAvatarView: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .help(osName.map { L("系统：%@", $0) } ?? "")
+        .accessibilityLabel(osName ?? name)
     }
 
     private var initial: String {
@@ -382,8 +409,8 @@ struct GlassIconButton: View {
                 .strokeBorder(isOn ? Color.accentColor.opacity(0.5) : restingBorder,
                               lineWidth: 1)
         }
-        .scaleEffect(isPressed ? 0.88 : 1.0)
-        .animation(.easeOut(duration: 0.08), value: isPressed)
+        .scaleEffect(isPressed ? DS.Anim.pressedScale : 1.0)
+        .animation(DS.Anim.press, value: isPressed)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .updating($isPressed) { _, state, _ in state = true }
@@ -391,6 +418,10 @@ struct GlassIconButton: View {
         .disabled(disabled)
         .onHover { isHovering = $0 }
         .help(help)
+        // `.help` only populates accessibilityHelp; VoiceOver still needs an
+        // explicit name or it reads a bare "button". The tooltip text is the
+        // label.
+        .accessibilityLabel(help)
     }
 
     private var tint: Color {
@@ -439,6 +470,24 @@ extension View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(DS.Colors.cardBorder, lineWidth: 1)
         )
+    }
+
+    /// Zero-frame press feedback for custom icon buttons that cannot use
+    /// `GlassIconButton`: a synchronous scale via `@GestureState` (no GPU
+    /// compositing latency), using the shared `DS.Anim` tokens. Pair with an
+    /// `.onHover` tint at the call site for a complete tappable affordance.
+    func pressFeedback() -> some View { modifier(PressFeedbackModifier()) }
+}
+
+private struct PressFeedbackModifier: ViewModifier {
+    @GestureState private var isPressed = false
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isPressed ? DS.Anim.pressedScale : 1)
+            .animation(DS.Anim.press, value: isPressed)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0).updating($isPressed) { _, state, _ in state = true }
+            )
     }
 }
 

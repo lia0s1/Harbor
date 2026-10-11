@@ -77,6 +77,7 @@ private struct MonitorPanelContent: View {
     @State private var sessionState: TerminalSession.State = .connecting
     @State private var autoReconnectAttempt = 0
     @State private var alertSettingsPresented = false
+    @ScaledMetric(relativeTo: .callout) private var hostnameFontSize: CGFloat = 12
 
     private var forwarding: ForwardingService? {
         sessionManager.forwarding(for: session)
@@ -143,27 +144,32 @@ private struct MonitorPanelContent: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(stateColor)
-                .frame(width: 7, height: 7)
+            // Shape-redundant state glyph (not color alone) with an animated
+            // color switch, mirroring the session-tab indicator.
+            Image(systemName: stateSymbol)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(stateColor)
+                .frame(width: 9, height: 9)
+                .animation(DS.Anim.state, value: sessionState)
                 .accessibilityLabel(stateAccessibilityLabel)
             Text(ServerPrivacy.mask(session.host.displayName, when: maskIP))
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: hostnameFontSize, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(ServerPrivacy.mask(session.host.displayName, when: maskIP))
             Spacer(minLength: 0)
-            Button {
+            MonitorIconButton(
+                systemName: monitor.activeAlerts.isEmpty ? "bell" : "bell.badge.fill",
+                label: L("监控告警设置"),
+                size: 12,
+                rest: monitor.activeAlerts.isEmpty
+                    ? AnyShapeStyle(.secondary) : AnyShapeStyle(DS.Colors.statusError),
+                hover: monitor.activeAlerts.isEmpty
+                    ? AnyShapeStyle(.primary) : AnyShapeStyle(DS.Colors.statusError.opacity(0.7)),
+                box: CGSize(width: 20, height: 20)
+            ) {
                 alertSettingsPresented.toggle()
-            } label: {
-                Image(systemName: monitor.activeAlerts.isEmpty ? "bell" : "bell.badge.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(monitor.activeAlerts.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(DS.Colors.statusError))
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .help(L("监控告警设置"))
             .popover(isPresented: $alertSettingsPresented, arrowEdge: .top) {
                 MonitorAlertSettingsView(monitor: monitor)
             }
@@ -175,6 +181,16 @@ private struct MonitorPanelContent: View {
         case .connecting: return DS.Colors.statusConnecting
         case .running: return DS.Colors.statusRunning
         case .exited(let code): return (code ?? 1) == 0 ? DS.Colors.statusIdle : DS.Colors.statusError
+        }
+    }
+
+    /// Shape-redundant state glyph paired with `stateColor` so state reads
+    /// without hue (color-blind / grayscale / VoiceOver), per `DS.StatusSymbol`.
+    private var stateSymbol: String {
+        switch sessionState {
+        case .connecting: return DS.StatusSymbol.connecting
+        case .running: return DS.StatusSymbol.running
+        case .exited(let code): return (code ?? 1) == 0 ? DS.StatusSymbol.idle : DS.StatusSymbol.error
         }
     }
 
@@ -199,8 +215,12 @@ private struct MonitorPanelContent: View {
             )
         case .exited:
             if autoReconnectAttempt > 0 {
+                // Spinning connecting glyph (shape + motion, not a bare spinner)
+                // so the auto-reconnect state never reads as frozen.
                 MonitorNotice(
-                    spinner: true,
+                    symbol: DS.StatusSymbol.connecting,
+                    rotating: true,
+                    symbolTint: AnyShapeStyle(DS.Colors.statusConnecting),
                     title: L("连接已断开，正在自动重连…"),
                     caption: L("第 %lld 次尝试（共 %lld 次）", autoReconnectAttempt, 5),
                     actionTitle: L("立即重连"),
@@ -362,7 +382,7 @@ private struct MonitorPanelContent: View {
                 Spacer(minLength: 0)
                 ProgressView()
                     .controlSize(.small)
-                    .scaleEffect(0.6)
+                    .scaleEffect(monitorSpinnerScale)
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 2)
@@ -462,6 +482,7 @@ private struct SpeedLabel: View {
     let arrow: String
     let color: Color
     let value: Double
+    @ScaledMetric(relativeTo: .caption) private var valueFontSize: CGFloat = 11
 
     var body: some View {
         HStack(spacing: 3) {
@@ -469,7 +490,7 @@ private struct SpeedLabel: View {
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(color)
             Text(MonitorFormat.speed(bytesPerSecond: value))
-                .font(.system(size: 11).monospacedDigit())
+                .font(.system(size: valueFontSize).monospacedDigit())
         }
     }
 }
@@ -483,6 +504,8 @@ private struct MonitorOverviewCard: View, @MainActor Equatable {
     @Binding var maskIP: Bool
     let onSystemInfo: () -> Void
     @Environment(\.locale) private var locale
+    @ScaledMetric(relativeTo: .caption) private var ipFontSize: CGFloat = 11
+    @State private var sysInfoHovering = false
 
     static func == (a: MonitorOverviewCard, b: MonitorOverviewCard) -> Bool {
         a.hostname == b.hostname
@@ -500,19 +523,16 @@ private struct MonitorOverviewCard: View, @MainActor Equatable {
                         .foregroundStyle(.secondary)
                     Spacer(minLength: DS.Space.s)
                     Text(ServerPrivacy.mask(hostname, when: maskIP))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: ipFontSize, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
-                    Button { maskIP.toggle() } label: {
-                        Image(systemName: maskIP ? "eye.slash" : "eye")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 14, height: 14)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(maskIP ? L("显示 IP") : L("隐藏 IP"))
+                    MonitorIconButton(
+                        systemName: maskIP ? "eye.slash" : "eye",
+                        label: maskIP ? L("显示 IP") : L("隐藏 IP"),
+                        size: 9,
+                        box: CGSize(width: 14, height: 14)
+                    ) { maskIP.toggle() }
                     CopyButton(text: hostname, help: L("复制地址"))
                 }
                 InfoRow(label: L("运行时间"), value: MonitorFormat.uptime(seconds: uptimeSeconds, locale: locale))
@@ -525,8 +545,11 @@ private struct MonitorOverviewCard: View, @MainActor Equatable {
                     .labelStyle(.titleAndIcon)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(sysInfoHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .pressFeedback()
+            .onHover { sysInfoHovering = $0 }
             .help(L("查看详细系统信息"))
+            .accessibilityLabel(L("系统信息"))
         }
     }
 }
@@ -536,6 +559,8 @@ private struct CPUUsageCard: View, @MainActor Equatable {
     /// Per-core busy %, in core order. Empty until at least two samples arrive.
     let corePercents: [Double]
     let onTap: () -> Void
+    @ScaledMetric(relativeTo: .caption) private var percentFontSize: CGFloat = 11
+    @ScaledMetric(relativeTo: .caption2) private var coreFontSize: CGFloat = 9
 
     static func == (a: CPUUsageCard, b: CPUUsageCard) -> Bool {
         a.percent == b.percent && a.corePercents == b.corePercents
@@ -547,7 +572,7 @@ private struct CPUUsageCard: View, @MainActor Equatable {
                 HStack(spacing: DS.Space.s) {
                     UsageBar(fraction: (percent ?? 0) / 100, tint: usageTint(percent ?? 0))
                     Text(percent.map { MonitorFormat.percent($0) } ?? "—")
-                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .font(.system(size: percentFontSize, weight: .medium).monospacedDigit())
                         .frame(minWidth: 32, alignment: .trailing)
                 }
                 if !corePercents.isEmpty {
@@ -568,12 +593,12 @@ private struct CPUUsageCard: View, @MainActor Equatable {
             ForEach(Array(cores.enumerated()), id: \.offset) { index, pct in
                 HStack(spacing: 4) {
                     Text(L("核%lld", index))
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: coreFontSize, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .frame(width: 22, alignment: .leading)
                     UsageBar(fraction: pct / 100, tint: usageTint(pct), height: 4)
                     Text(MonitorFormat.percent(pct))
-                        .font(.system(size: 9).monospacedDigit())
+                        .font(.system(size: coreFontSize).monospacedDigit())
                         .frame(width: 28, alignment: .trailing)
                 }
             }
@@ -589,6 +614,7 @@ private struct MemoryCard: View, @MainActor Equatable {
     let swapUsedFraction: Double
     let swapUsedKB: UInt64
     let onTap: () -> Void
+    @ScaledMetric(relativeTo: .caption) private var detailFontSize: CGFloat = 10.5
 
     static func == (a: MemoryCard, b: MemoryCard) -> Bool {
         a.usedFraction == b.usedFraction && a.usedKB == b.usedKB && a.totalKB == b.totalKB
@@ -635,7 +661,7 @@ private struct MemoryCard: View, @MainActor Equatable {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: DS.Space.s)
                 Text(detail)
-                    .font(.system(size: 10.5).monospacedDigit())
+                    .font(.system(size: detailFontSize).monospacedDigit())
                     .lineLimit(1)
             }
             UsageBar(fraction: fraction, tint: usageTint(fraction * 100))
@@ -650,6 +676,7 @@ private struct ProcessListCard: View, @MainActor Equatable {
 
     @State private var sortKey: ProcessSortKey = .cpu
     @State private var sortAscending = false
+    @ScaledMetric(relativeTo: .caption) private var rowFontSize: CGFloat = 10.5
 
     static func == (a: ProcessListCard, b: ProcessListCard) -> Bool { a.processes == b.processes }
 
@@ -679,7 +706,7 @@ private struct ProcessListCard: View, @MainActor Equatable {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .help(proc.command)
                             }
-                            .font(.system(size: 10.5).monospacedDigit())
+                            .font(.system(size: rowFontSize).monospacedDigit())
                             .contentShape(Rectangle())
                             .contextMenu {
                                 if proc.pid > 0 {
@@ -847,6 +874,7 @@ private struct ActiveInterfacesCard: View, @MainActor Equatable {
     let selected: String?
     let onSelect: (String) -> Void
     let onTap: () -> Void
+    @ScaledMetric(relativeTo: .caption) private var nameFontSize: CGFloat = 10.5
 
     static func == (a: ActiveInterfacesCard, b: ActiveInterfacesCard) -> Bool {
         a.rows == b.rows && a.selected == b.selected
@@ -866,7 +894,7 @@ private struct ActiveInterfacesCard: View, @MainActor Equatable {
         let isSelected = selected == row.name
         return HStack(spacing: DS.Space.s) {
             Text(row.name)
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(.system(size: nameFontSize, design: .monospaced))
                 .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -896,6 +924,8 @@ private struct DiskCard: View, @MainActor Equatable {
     /// Current write speed for the busiest disk in bytes/sec (0 until first delta).
     let diskWriteBytesPerSec: Double
     let onTap: () -> Void
+    @ScaledMetric(relativeTo: .caption) private var rowFontSize: CGFloat = 10.5
+    @ScaledMetric(relativeTo: .caption2) private var ioFontSize: CGFloat = 10
 
     static func == (a: DiskCard, b: DiskCard) -> Bool {
         a.disks == b.disks
@@ -917,13 +947,13 @@ private struct DiskCard: View, @MainActor Equatable {
                                 // Overlay rows surfaced by the container fallback
                                 // are labeled instead of shown as a host mount.
                                 Text(disk.isContainerOverlay ? L("容器 overlay") : disk.mount)
-                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .font(.system(size: rowFontSize, design: .monospaced))
                                     .lineLimit(1)
                                     .truncationMode(.head)
                                     .help(disk.mount)
                                 Spacer(minLength: DS.Space.s)
                                 Text(MonitorFormat.sizePair(disk.availableKB, disk.totalKB))
-                                    .font(.system(size: 10.5).monospacedDigit())
+                                    .font(.system(size: rowFontSize).monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
                             UsageBar(
@@ -956,10 +986,10 @@ private struct DiskCard: View, @MainActor Equatable {
     private func ioLabel(prefix: String, bytes: Double) -> some View {
         HStack(spacing: 3) {
             Text(prefix)
-                .font(.system(size: 10))
+                .font(.system(size: ioFontSize))
                 .foregroundStyle(.tertiary)
             Text(MonitorFormat.speed(bytesPerSecond: bytes))
-                .font(.system(size: 10).monospacedDigit())
+                .font(.system(size: ioFontSize).monospacedDigit())
                 .foregroundStyle(.secondary)
         }
     }
@@ -979,6 +1009,7 @@ private struct TrafficCard: View, @MainActor Equatable {
     let rxTotal: UInt64
     let txTotal: UInt64
     let onTap: () -> Void
+    @ScaledMetric(relativeTo: .caption2) private var interfaceFontSize: CGFloat = 10
 
     static func == (a: TrafficCard, b: TrafficCard) -> Bool {
         a.interfaceName == b.interfaceName && a.rxTotal == b.rxTotal && a.txTotal == b.txTotal
@@ -1014,7 +1045,7 @@ private struct TrafficCard: View, @MainActor Equatable {
             // Make it explicit which NIC these totals are for.
             if let interfaceName {
                 Text(interfaceName)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: interfaceFontSize, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
         }
@@ -1136,6 +1167,55 @@ func usageTint(_ percent: Double) -> Color {
     return DS.Colors.statusRunning
 }
 
+/// Shared scale for the small inline `ProgressView` spinners in the monitor
+/// rail and detail sheets, so every sub-control spinner matches (was 0.6 / 0.5
+/// ad hoc). `.controlSize(.small)` then this scale keeps them uniform.
+let monitorSpinnerScale: CGFloat = 0.6
+
+/// A hand-rolled icon button for dense monitor chrome that can't host a
+/// `GlassIconButton` glass chip (rail header, card accessories, detail rows).
+/// These were bare `Button { Image } .buttonStyle(.plain)` controls missing the
+/// three affordances every icon button owes: a VoiceOver label, zero-frame
+/// `pressFeedback()` scale, and a hover tint. Resting / hover tints are
+/// caller-supplied so a destructive glyph keeps its red. Icon point size stays
+/// fixed (a true glyph metric); only data text scales with Dynamic Type.
+struct MonitorIconButton: View {
+    let systemName: String
+    let label: String
+    var size: CGFloat = 11
+    var weight: Font.Weight = .medium
+    var rest: AnyShapeStyle = AnyShapeStyle(.secondary)
+    var hover: AnyShapeStyle = AnyShapeStyle(.primary)
+    /// Optional fixed hit box (matches the old `.frame(width:height:)`).
+    var box: CGSize? = nil
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            glyph.contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pressFeedback()
+        .onHover { hovering = $0 }
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    @ViewBuilder
+    private var glyph: some View {
+        let image = Image(systemName: systemName)
+            .font(.system(size: size, weight: weight))
+            .foregroundStyle(hovering ? hover : rest)
+        if let box {
+            image.frame(width: box.width, height: box.height)
+        } else {
+            image
+        }
+    }
+}
+
 /// Compact card: SF Symbol + title header (optional trailing accessory),
 /// then free-form content on a subtle rounded background.
 private struct MonitorCard<Accessory: View, Content: View>: View {
@@ -1208,6 +1288,7 @@ private struct MonitorCard<Accessory: View, Content: View>: View {
 private struct InfoRow: View {
     let label: String
     let value: String
+    @ScaledMetric(relativeTo: .caption) private var valueFontSize: CGFloat = 11
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -1216,7 +1297,7 @@ private struct InfoRow: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: DS.Space.s)
             Text(value)
-                .font(.system(size: 11).monospacedDigit())
+                .font(.system(size: valueFontSize).monospacedDigit())
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(value)
@@ -1229,6 +1310,10 @@ private struct InfoRow: View {
 private struct MonitorNotice: View {
     var symbol: String? = nil
     var spinner = false
+    /// Spin `symbol` continuously (auto-reconnect) so the glyph — a shape+motion
+    /// cue rather than a bare ProgressView — never reads as frozen.
+    var rotating = false
+    var symbolTint: AnyShapeStyle = AnyShapeStyle(.tertiary)
     let title: String
     var caption: String? = nil
     var actionTitle: String? = nil
@@ -1239,6 +1324,14 @@ private struct MonitorNotice: View {
             if spinner {
                 ProgressView()
                     .controlSize(.small)
+            } else if rotating, let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(symbolTint)
+                    // macOS 15+ (project targets Tahoe); stops when `rotating`
+                    // goes false or the notice is removed.
+                    .symbolEffect(.rotate, options: .repeating, isActive: true)
+                    .accessibilityLabel(title)
             } else if let symbol {
                 Image(systemName: symbol)
                     .font(.system(size: 22, weight: .light))
@@ -1304,6 +1397,8 @@ private struct TrafficRing: View {
     let fraction: Double
     let color: Color
     let symbol: String
+    @ScaledMetric(relativeTo: .callout) private var bytesFontSize: CGFloat = 12.5
+    @ScaledMetric(relativeTo: .caption2) private var percentFontSize: CGFloat = 9
 
     var body: some View {
         VStack(spacing: 5) {
@@ -1320,11 +1415,11 @@ private struct TrafficRing: View {
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(color)
                     Text(MonitorFormat.sizeShort(bytes: Double(bytes)))
-                        .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
+                        .font(.system(size: bytesFontSize, weight: .semibold, design: .rounded).monospacedDigit())
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                     Text(MonitorFormat.percent(fraction * 100))
-                        .font(.system(size: 9).monospacedDigit())
+                        .font(.system(size: percentFontSize).monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 4)
@@ -1385,6 +1480,7 @@ struct NetworkSparkline: View {
     let rx: [Double] // download, bytes/s
     let tx: [Double] // upload, bytes/s
     var height: CGFloat = 56
+    @ScaledMetric(relativeTo: .caption2) private var axisFontSize: CGFloat = 8.5
 
     var body: some View {
         let rxW = Array(rx.suffix(sparklineWindow))
@@ -1419,7 +1515,7 @@ struct NetworkSparkline: View {
                 AxisValueLabel {
                     if let speed = value.as(Double.self) {
                         Text(MonitorFormat.speedAxisLabel(bytesPerSecond: speed))
-                            .font(.system(size: 8.5).monospacedDigit())
+                            .font(.system(size: axisFontSize).monospacedDigit())
                     }
                 }
             }
@@ -1438,13 +1534,14 @@ struct NetworkSparkline: View {
 /// PingService so ping updates only redraw this view, not the whole panel.
 private struct LatencyCardView: View {
     @ObservedObject var ping: PingService
+    @ScaledMetric(relativeTo: .title3) private var currentFontSize: CGFloat = 15
 
     var body: some View {
         MonitorCard(L("延迟"), symbol: "clock") {
             VStack(alignment: .leading, spacing: DS.Space.s) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(ping.currentMs.map { MonitorFormat.milliseconds($0) } ?? "—")
-                        .font(.system(size: 15, weight: .medium, design: .rounded).monospacedDigit())
+                        .font(.system(size: currentFontSize, weight: .medium, design: .rounded).monospacedDigit())
                     Spacer(minLength: DS.Space.s)
                     if let average = ping.averageMs {
                         Text(verbatim: L("平均 %@", MonitorFormat.milliseconds(average)))
@@ -1480,6 +1577,7 @@ private struct LatencyCardView: View {
 /// Blue round-trip-time histogram with three trailing ms tick labels.
 private struct LatencySparkline: View {
     let samples: [Double]
+    @ScaledMetric(relativeTo: .caption2) private var axisFontSize: CGFloat = 8.5
 
     var body: some View {
         let window = Array(samples.suffix(sparklineWindow))
@@ -1501,7 +1599,7 @@ private struct LatencySparkline: View {
                 AxisValueLabel {
                     if let ms = value.as(Double.self) {
                         Text("\(Int(ms.rounded()))")
-                            .font(.system(size: 8.5).monospacedDigit())
+                            .font(.system(size: axisFontSize).monospacedDigit())
                     }
                 }
             }

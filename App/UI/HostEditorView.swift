@@ -52,6 +52,7 @@ struct HostEditorView: View {
     @State private var connectionTestStatus: SetupStatus = .idle
     @State private var showTOTPSetup = false
     @State private var hasTOTPSecret = false
+    @State private var clearKeyHover = false
 
     @EnvironmentObject private var hostStore: HostStore
 
@@ -123,7 +124,7 @@ struct HostEditorView: View {
 
             footer
         }
-        .frame(width: 520, height: 600)
+        .frame(minWidth: 520, idealWidth: 520, maxWidth: 640, minHeight: 600, idealHeight: 600, maxHeight: 600)
         .onChange(of: hostname) { _, _ in hostnameWasEdited = true }
         .onAppear { hasTOTPSecret = TOTPStore.hasSecret(for: hostID) }
         .sheet(isPresented: $showTOTPSetup) {
@@ -284,10 +285,13 @@ struct HostEditorView: View {
                             identityFile = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(clearKeyHover ? .primary : .secondary)
                         }
                         .buttonStyle(.plain)
+                        .pressFeedback()
+                        .onHover { clearKeyHover = $0 }
                         .help(L("使用默认密钥"))
+                        .accessibilityLabel(L("使用默认密钥"))
                     }
                     Button(L("选择…"), action: chooseIdentityFile)
                 }
@@ -715,6 +719,8 @@ struct ForwardEditorRow: View {
     @Binding var forward: ForwardDraft
     let onRemove: () -> Void
 
+    @State private var removeHover = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -728,10 +734,13 @@ struct ForwardEditorRow: View {
                 Spacer()
                 Button(action: onRemove) {
                     Image(systemName: "trash")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(removeHover ? .primary : .secondary)
                 }
                 .buttonStyle(.borderless)
+                .pressFeedback()
+                .onHover { removeHover = $0 }
                 .help(L("移除此转发"))
+                .accessibilityLabel(L("移除此转发"))
             }
             HStack(spacing: 6) {
                 TextField(L("绑定地址"), text: $forward.bindAddress, prompt: Text(verbatim: L("绑定地址（可选）")))

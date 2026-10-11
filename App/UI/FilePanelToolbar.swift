@@ -37,9 +37,11 @@ struct FileToolButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pressFeedback()
         .disabled(disabled)
         .onHover { hovering = $0 }
         .help(help)
+        .accessibilityLabel(help)
     }
 
     private var tint: AnyShapeStyle {
@@ -52,6 +54,49 @@ struct FileToolButton: View {
         if isOn { return SwiftUI.Color.accentColor.opacity(0.15) }
         if hovering && !disabled { return SwiftUI.Color.primary.opacity(0.08) }
         return .clear
+    }
+}
+
+// MARK: - Inline icon button
+
+/// Minimal borderless icon button for dense inline spots — transfer rows, the
+/// error banner's close control, the name-filter clear button — where the fixed
+/// 30×26 `FileToolButton` is too big. Gives those bare `Button { Image }` call
+/// sites the same affordances the toolbar buttons have: a hover tint, the shared
+/// `pressFeedback()` scale, and an explicit VoiceOver label (the tooltip text,
+/// since `.help` only populates accessibilityHelp — the same gap `GlassIconButton`
+/// documents).
+struct InlineIconButton: View {
+    let systemName: String
+    let help: String
+    var size: CGFloat = 11
+    var disabled: Bool = false
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    init(_ systemName: String, help: String, size: CGFloat = 11,
+         disabled: Bool = false, action: @escaping () -> Void) {
+        self.systemName = systemName
+        self.help = help
+        self.size = size
+        self.disabled = disabled
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: size, weight: .medium))
+                .foregroundStyle(hovering && !disabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pressFeedback()
+        .disabled(disabled)
+        .onHover { hovering = $0 }
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 

@@ -24,7 +24,7 @@ struct SettingsView: View {
             AboutSettingsView()
                 .tabItem { Label(L("关于"), systemImage: "info.circle") }
         }
-        .frame(width: 520, height: 420)
+        .frame(minWidth: 520, idealWidth: 520, maxWidth: 640, minHeight: 420, idealHeight: 420, maxHeight: 420)
     }
 }
 
@@ -32,6 +32,7 @@ struct SettingsView: View {
 
 private struct PrivacySettingsView: View {
     @AppStorage(HistoryPrivacyPreference.persistenceKey) private var persistHistory = false
+    @State private var showClearHistoryConfirmation = false
 
     var body: some View {
         Form {
@@ -44,7 +45,17 @@ private struct PrivacySettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button(L("立即清除命令与路径历史"), role: .destructive) {
-                    clearHistory()
+                    showClearHistoryConfirmation = true
+                }
+                .confirmationDialog(
+                    L("清除命令与路径历史？"),
+                    isPresented: $showClearHistoryConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button(L("清除"), role: .destructive) { clearHistory() }
+                    Button(L("取消"), role: .cancel) { }
+                } message: {
+                    Text(L("将删除所有已保存的命令和远程路径历史，此操作无法撤销。"))
                 }
             }
         }

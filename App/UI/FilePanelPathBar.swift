@@ -57,5 +57,6 @@ struct RemotePathBar: View {
         .fixedSize()
         .disabled(!isReady)
         .help(L("历史路径"))
+        .accessibilityLabel(L("历史路径"))
     }
 }

@@ -177,9 +177,9 @@ struct FileEditorView: View {
                 saving = false
                 original = snapshot
                 self.remoteVersion = savedVersion
-                withAnimation { savedFlash = true }
+                withAnimation(DS.Anim.state) { savedFlash = true }
                 try? await Task.sleep(nanoseconds: 1_600_000_000)
-                withAnimation { savedFlash = false }
+                withAnimation(DS.Anim.state) { savedFlash = false }
             case .failure(let error):
                 saving = false
                 saveError = error.message

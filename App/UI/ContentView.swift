@@ -6,6 +6,7 @@ struct ContentView: View {
     @EnvironmentObject private var sessionManager: SessionManager
     @EnvironmentObject private var quickCommandStore: QuickCommandStore
     @StateObject private var workspaceStore = WorkspaceStore()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedHostID: UUID?
     /// Bound so ⌘T can reopen a collapsed sidebar (its quick-connect footer
     /// is unmounted while collapsed and would otherwise never get focus).
@@ -116,8 +117,8 @@ struct ContentView: View {
                     .background(Capsule().fill(.regularMaterial))
                     .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.35)))
                     .padding(.top, 12)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.spring(duration: 0.3), value: showScriptSentHUD)
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    .animation(DS.Anim.toast, value: showScriptSentHUD)
             }
         }
         .modifier(ToolSheetsModifier(
@@ -284,7 +285,10 @@ private struct SessionStatusBar: View {
 
     private var idleBar: some View {
         HStack(spacing: 8) {
-            Circle().fill(Color.gray).frame(width: 6, height: 6)
+            Image(systemName: DS.StatusSymbol.idle)
+                .font(.system(size: 9))
+                .foregroundStyle(DS.Colors.statusIdle)
+                .accessibilityLabel(L("未连接"))
             Spacer()
         }
         .font(.system(size: 11))
@@ -308,9 +312,11 @@ private struct SessionStatusBarContent: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(isConnected ? Color.green : Color.gray)
-                .frame(width: 6, height: 6)
+            Image(systemName: isConnected ? DS.StatusSymbol.running : DS.StatusSymbol.idle)
+                .font(.system(size: 9))
+                .foregroundStyle(isConnected ? DS.Colors.statusRunning : DS.Colors.statusIdle)
+                .animation(DS.Anim.state, value: isConnected)
+                .accessibilityLabel(isConnected ? L("已连接") : L("未连接"))
             Text(hostLabel)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

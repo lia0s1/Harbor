@@ -224,12 +224,16 @@ struct SessionTabItem: View {
     @State private var currentDirectory: String? = nil
     @State private var isRenaming = false
     @State private var renameText = ""
+    @ScaledMetric(relativeTo: .callout) private var titleFontSize: CGFloat = 11.5
+    @ScaledMetric(relativeTo: .caption2) private var subtitleFontSize: CGFloat = 9
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(stateColor)
-                .frame(width: 7, height: 7)
+            Image(systemName: stateSymbol)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(stateColor)
+                .frame(width: 9, height: 9)
+                .animation(DS.Anim.state, value: sessionState)
                 .accessibilityLabel(stateAccessibilityLabel)
             if isRecording {
                 Circle()
@@ -244,13 +248,13 @@ struct SessionTabItem: View {
             }
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
-                    .font(.system(size: 11.5))
+                    .font(.system(size: titleFontSize))
                     .foregroundStyle(isSelected ? theme.chromePrimaryTextColor : theme.chromeSecondaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if let cwd = currentDirectory {
                     Text(URL(fileURLWithPath: cwd).lastPathComponent)
-                        .font(.system(size: 9))
+                        .font(.system(size: subtitleFontSize))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -285,14 +289,14 @@ struct SessionTabItem: View {
         }
         .popover(isPresented: $isRenaming) {
             HStack(spacing: DS.Space.s) {
-                TextField("标签页名称", text: $renameText)
+                TextField(L("标签页名称"), text: $renameText)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 180)
                     .onSubmit {
                         session.rename(to: renameText)
                         isRenaming = false
                     }
-                Button("确定") {
+                Button(L("确定")) {
                     session.rename(to: renameText)
                     isRenaming = false
                 }
@@ -326,10 +330,16 @@ struct SessionTabItem: View {
                 .font(.system(size: 7.5, weight: .bold))
                 .foregroundStyle(theme.chromeSecondaryTextColor)
                 .frame(width: 14, height: 14)
-                .contentShape(Circle())
+                // 14pt glyph + 5pt padding on each side = 24×24 hit area
+                // (≥24pt), while the visible mark stays small.
+                .padding(5)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pressFeedback()
         .opacity(isHovering || isSelected ? 1 : 0)
+        .animation(DS.Anim.state, value: isHovering)
+        .accessibilityLabel(L("关闭标签页"))
         .help("关闭标签页 (⌘W)")
     }
 
@@ -338,6 +348,16 @@ struct SessionTabItem: View {
         case .connecting: return DS.Colors.statusConnecting
         case .running: return DS.Colors.statusRunning
         case .exited(let code): return (code ?? 1) == 0 ? DS.Colors.statusIdle : DS.Colors.statusError
+        }
+    }
+
+    /// Shape-redundant state glyph (color-blind / grayscale / VoiceOver) paired
+    /// with `stateColor`; shapes are deliberately distinct per `DS.StatusSymbol`.
+    private var stateSymbol: String {
+        switch sessionState {
+        case .connecting: return DS.StatusSymbol.connecting
+        case .running: return DS.StatusSymbol.running
+        case .exited(let code): return (code ?? 1) == 0 ? DS.StatusSymbol.idle : DS.StatusSymbol.error
         }
     }
 
@@ -435,6 +455,10 @@ struct SessionTerminalPane: View {
                 Image(systemName: reconnecting ? "arrow.triangle.2.circlepath" : "bolt.horizontal.circle")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(reconnecting ? DS.Colors.statusConnecting : statusColor(code: code))
+                    // Spin while auto-reconnecting so the glyph never reads as
+                    // frozen; the indefinite effect stops the moment
+                    // `reconnecting` goes false or the banner is removed.
+                    .symbolEffect(.rotate, options: .repeating, isActive: reconnecting)
                 Text(reconnecting ? L("连接已断开，正在自动重连…") : L("会话已结束"))
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(theme.chromePrimaryTextColor)

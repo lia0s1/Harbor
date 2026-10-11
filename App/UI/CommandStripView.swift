@@ -127,9 +127,13 @@ private struct CommandBarIconButton: View {
             RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous)
                 .strokeBorder(isOn ? SwiftUI.Color.accentColor.opacity(0.55) : SwiftUI.Color.clear, lineWidth: 1)
         )
+        .pressFeedback()
         .disabled(disabled)
         .onHover { isHovering = $0 }
         .help(help)
+        // `.help` only populates accessibilityHelp; VoiceOver still needs an
+        // explicit name or it reads a bare "button" (same note as GlassIconButton).
+        .accessibilityLabel(help)
     }
 
     private var fill: SwiftUI.Color {
@@ -177,6 +181,7 @@ struct CommandStripView: View {
     @State private var pendingRisk: CommandRisk?
     @State private var pendingCommand = ""
     @State private var cachedSuggestion = ""
+    @State private var sendHovering = false
     @FocusState private var fieldFocused: Bool
     @FocusState private var findFocused: Bool
 
@@ -425,13 +430,25 @@ struct CommandStripView: View {
             Image(systemName: "arrow.up.circle.fill")
                 .font(.system(size: 19))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(text.isEmpty ? AnyShapeStyle(theme.chromeSecondaryTextColor.opacity(0.5))
-                                                : AnyShapeStyle(SwiftUI.Color.accentColor))
+                .foregroundStyle(sendTint)
         }
         .buttonStyle(.plain)
+        .pressFeedback()
+        .onHover { sendHovering = $0 }
         .disabled(!canSend)
         .opacity(canSend ? 1 : 0.45)
         .help(canSend ? "发送到当前会话 (⏎)" : "会话未运行，无法发送")
+        .accessibilityLabel(L("发送命令"))
+    }
+
+    /// Send glyph tint: accent once there is a draft to send; in the empty
+    /// state it brightens on hover (secondary → primary) like the ghost icons.
+    private var sendTint: AnyShapeStyle {
+        if text.isEmpty {
+            return AnyShapeStyle(sendHovering ? theme.chromePrimaryTextColor
+                                              : theme.chromeSecondaryTextColor.opacity(0.5))
+        }
+        return AnyShapeStyle(SwiftUI.Color.accentColor)
     }
 
     // MARK: History
@@ -442,7 +459,7 @@ struct CommandStripView: View {
         Menu {
             let recents = historyStore.history.recent(20)
             if recents.isEmpty {
-                Text("暂无历史命令")
+                Text(L("暂无历史命令"))
             } else {
                 ForEach(recents, id: \.self) { command in
                     Button(command) {
@@ -462,7 +479,8 @@ struct CommandStripView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("历史命令")
+        .help(L("历史命令"))
+        .accessibilityLabel(L("历史命令"))
     }
 
     // MARK: Find bar
