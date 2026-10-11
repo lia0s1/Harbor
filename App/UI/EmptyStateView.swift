@@ -102,26 +102,7 @@ struct EmptyStateView: View {
                     .foregroundStyle(.secondary)
 
                 ForEach(recentHosts) { host in
-                    Button {
-                        PendingHostConnect.request(host.id)
-                    } label: {
-                        HStack(spacing: DS.Space.s) {
-                            HostAvatarView(name: host.displayName, size: 22)
-                            Text(host.displayName)
-                                .lineLimit(1)
-                            Spacer(minLength: DS.Space.m)
-                            Text(connectionSummary(for: host))
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, DS.Space.s + 2)
-                    .padding(.vertical, 6)
-                    .glassCard()
-                    .help(L("连接到 %@", host.displayName))
+                    RecentHostRow(host: host, summary: connectionSummary(for: host))
                 }
             }
         }
@@ -140,5 +121,62 @@ struct EmptyStateView: View {
             text += ":\(host.port)"
         }
         return text
+    }
+}
+
+/// A recent-connection card: the first-run detail-pane CTA, so it needs a
+/// visible hover highlight and press feedback instead of reading as a flat,
+/// inert glass slab. `summary` is precomputed by the parent so this row stays
+/// purely presentational.
+private struct RecentHostRow: View {
+    let host: SSHHost
+    let summary: String
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            PendingHostConnect.request(host.id)
+        } label: {
+            HStack(spacing: DS.Space.s) {
+                HostAvatarView(name: host.displayName, size: 22)
+                Text(host.displayName)
+                    .lineLimit(1)
+                Spacer(minLength: DS.Space.m)
+                Text(summary)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        // A full-width connect card: press feedback is a background tint via the
+        // button style (NOT a scale bounce — that reads as a jolt on a large
+        // row and the gesture it needs can race the tap). Hover tint is passed in.
+        .buttonStyle(RecentRowButtonStyle(isHovering: isHovering))
+        .onHover { isHovering = $0 }
+        .animation(DS.Anim.state, value: isHovering)
+        .help(L("连接到 %@", host.displayName))
+    }
+}
+
+/// Row chrome for a recent-connection card. Press/hover are expressed as a
+/// background tint (no scale), and the tint overlay never hit-tests, so the
+/// button's action always fires on click.
+private struct RecentRowButtonStyle: ButtonStyle {
+    let isHovering: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, DS.Space.s + 2)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .glassCard()
+            .overlay {
+                RoundedRectangle(cornerRadius: DS.Radius.medium)
+                    .fill(Color.primary.opacity(
+                        configuration.isPressed ? 0.12 : (isHovering ? 0.07 : 0)))
+                    .allowsHitTesting(false)
+            }
+            .animation(DS.Anim.state, value: configuration.isPressed)
     }
 }

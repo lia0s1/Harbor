@@ -206,20 +206,26 @@ private struct TunnelRow: View {
     @ViewBuilder private var statusIndicator: some View {
         switch status {
         case .active:
-            Circle().fill(DS.Colors.statusRunning)
-                .frame(width: 7, height: 7)
+            Image(systemName: DS.StatusSymbol.running)
+                .font(.system(size: 9))
+                .foregroundStyle(DS.Colors.statusRunning)
                 .help(L("已连接"))
+                .accessibilityLabel(L("已连接"))
         case .activating:
             ProgressView().controlSize(.small).scaleEffect(0.6)
                 .frame(width: 7, height: 7)
         case .failed:
-            Circle().fill(DS.Colors.statusError)
-                .frame(width: 7, height: 7)
+            Image(systemName: DS.StatusSymbol.error)
+                .font(.system(size: 9))
+                .foregroundStyle(DS.Colors.statusError)
                 .help(L("连接失败"))
+                .accessibilityLabel(L("连接失败"))
         case .inactive:
-            Circle().fill(DS.Colors.statusIdle.opacity(0.4))
-                .frame(width: 7, height: 7)
+            Image(systemName: DS.StatusSymbol.idle)
+                .font(.system(size: 9))
+                .foregroundStyle(DS.Colors.statusIdle.opacity(0.4))
                 .help(L("未连接"))
+                .accessibilityLabel(L("未连接"))
         }
     }
 }

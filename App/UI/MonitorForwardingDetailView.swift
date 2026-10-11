@@ -113,6 +113,7 @@ struct ForwardRow: View {
     let forward: PortForward
     /// Ad-hoc forwards show a trash button and can be removed from the live session.
     var isAdHoc: Bool = false
+    @ScaledMetric(relativeTo: .caption) private var specFontSize: CGFloat = 11
 
     private var pending: Bool { service.isPending(forward.id) }
 
@@ -153,13 +154,13 @@ struct ForwardRow: View {
                 // Bind → target spec
                 HStack(spacing: 3) {
                     Text(bindSpec)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: specFontSize, design: .monospaced))
                     if forward.kind != .dynamic {
                         Image(systemName: "arrow.right")
                             .font(.system(size: 9))
                             .foregroundStyle(.tertiary)
                         Text("\(forward.targetHost):\(forward.targetPort)")
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(size: specFontSize, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }

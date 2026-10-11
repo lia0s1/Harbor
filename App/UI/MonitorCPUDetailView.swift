@@ -6,6 +6,10 @@ import HarborKit
 
 struct CPUDetailView: View {
     @ObservedObject var monitor: MonitorService
+    @ScaledMetric(relativeTo: .largeTitle) private var totalFontSize: CGFloat = 30
+    @ScaledMetric(relativeTo: .callout) private var loadFontSize: CGFloat = 12
+    @ScaledMetric(relativeTo: .caption) private var componentFontSize: CGFloat = 10.5
+    @ScaledMetric(relativeTo: .caption2) private var coreFontSize: CGFloat = 10
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.l) {
@@ -22,7 +26,7 @@ struct CPUDetailView: View {
         return VStack(alignment: .leading, spacing: DS.Space.s) {
             HStack(alignment: .firstTextBaseline) {
                 Text(percent.map { MonitorFormat.percent($0) } ?? "—")
-                    .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                    .font(.system(size: totalFontSize, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(usageTint(percent ?? 0))
                 Text(L("总占用"))
                     .font(.caption)
@@ -40,7 +44,7 @@ struct CPUDetailView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(MonitorFormat.loadAverage(snap.load1, snap.load5, snap.load15))
-                        .font(.system(size: 12).monospacedDigit())
+                        .font(.system(size: loadFontSize).monospacedDigit())
                     Text(L("（1 / 5 / 15 分钟）"))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -79,7 +83,7 @@ struct CPUDetailView: View {
                 .frame(width: 64, alignment: .leading)
             ProgressLine(fraction: percent / 100, tint: color)
             Text(MonitorFormat.percent(percent))
-                .font(.system(size: 10.5).monospacedDigit())
+                .font(.system(size: componentFontSize).monospacedDigit())
                 .frame(width: 38, alignment: .trailing)
         }
     }
@@ -100,12 +104,12 @@ struct CPUDetailView: View {
                     ForEach(Array(cores.enumerated()), id: \.offset) { index, pct in
                         HStack(spacing: 6) {
                             Text(L("核%lld", index))
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: coreFontSize, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .frame(width: 30, alignment: .leading)
                             UsageBar(fraction: pct / 100, tint: usageTint(pct), height: 5)
                             Text(MonitorFormat.percent(pct))
-                                .font(.system(size: 10).monospacedDigit())
+                                .font(.system(size: coreFontSize).monospacedDigit())
                                 .frame(width: 34, alignment: .trailing)
                         }
                     }
@@ -117,6 +121,7 @@ struct CPUDetailView: View {
 
 private struct CPUHistoryChart: View {
     let series: [Double]
+    @ScaledMetric(relativeTo: .caption2) private var axisFontSize: CGFloat = 8.5
 
     var body: some View {
         let window = Array(series.suffix(90))
@@ -141,7 +146,7 @@ private struct CPUHistoryChart: View {
             AxisMarks(position: .trailing, values: [0, 50, 100]) { value in
                 AxisValueLabel {
                     if let v = value.as(Double.self) {
-                        Text("\(Int(v))").font(.system(size: 8.5).monospacedDigit())
+                        Text("\(Int(v))").font(.system(size: axisFontSize).monospacedDigit())
                     }
                 }
             }

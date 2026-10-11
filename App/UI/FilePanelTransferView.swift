@@ -121,27 +121,15 @@ struct TransferRowView: View {
             }
             Spacer(minLength: 0)
             if transfer.state == .running {
-                Button {
+                InlineIconButton("xmark.circle", help: L("取消传输")) {
                     service.cancelTransfer(id: transfer.id)
-                } label: {
-                    Image(systemName: "xmark.circle")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .help(L("取消传输"))
             }
             if transfer.isRetryable {
-                Button {
+                InlineIconButton("arrow.clockwise", help: L("重试"),
+                                 disabled: !service.canInteract) {
                     service.retryTransfer(transfer.id)
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .help(L("重试"))
-                .disabled(!service.canInteract)
             }
         }
     }

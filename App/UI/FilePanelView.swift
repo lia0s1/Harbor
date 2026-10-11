@@ -100,6 +100,7 @@ struct DualPaneFileView: View {
     private var treeWidth = FilePanelPreference.defaultTreeWidth
 
     @State private var transfersPresented = false
+    @State private var transfersHovering = false
     @State private var sessionState: TerminalSession.State = .connecting
 
     private var isReady: Bool {
@@ -186,7 +187,10 @@ struct DualPaneFileView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pressFeedback()
+        .onHover { transfersHovering = $0 }
         .help(hasFailedTransfers ? L("有传输失败，点击查看") : L("传输列表"))
+        .accessibilityLabel(hasFailedTransfers ? L("有传输失败，点击查看") : L("传输列表"))
         .popover(isPresented: $transfersPresented, arrowEdge: .bottom) {
             TransfersPopoverView(service: service)
         }
@@ -195,7 +199,7 @@ struct DualPaneFileView: View {
     private var transferIconStyle: AnyShapeStyle {
         if hasFailedTransfers { return AnyShapeStyle(DS.Colors.statusError) }
         if service.hasRunningTransfers { return AnyShapeStyle(SwiftUI.Color.accentColor) }
-        return AnyShapeStyle(.secondary)
+        return transfersHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
     }
 
     // MARK: States
@@ -308,6 +312,10 @@ struct RemoteFilePane: View {
     /// Brief transient hint when an action is dropped (e.g. panel not ready).
     @State private var actionHint: String?
     @State private var actionHintTask: Task<Void, Never>?
+    /// Dynamic-Type-aware size for the dense metadata columns (size / date /
+    /// permissions / owner). Keeps the former fixed 11pt at the default text
+    /// size but now scales with the user's preferred text size.
+    @ScaledMetric(relativeTo: .caption) private var columnFontSize: CGFloat = 11
 
     private var isReady: Bool {
         service.status == .ready && sessionState == .running
@@ -532,11 +540,26 @@ struct RemoteFilePane: View {
 
     // MARK: Remote body
 
+    /// Shared slide-from-top + fade for the status banners that insert at the
+    /// top of the list, so appearing / disappearing no longer snaps the table.
+    private var bannerTransition: AnyTransition {
+        .move(edge: .top).combined(with: .opacity)
+    }
+
+    /// One Equatable value that flips whenever any status banner toggles, so a
+    /// single `.animation(DS.Anim.state, value:)` drives every banner's insert /
+    /// remove (and the table's reflow) smoothly instead of snapping.
+    private var bannerSignature: [Bool] {
+        [service.errorMessage != nil, service.listingTruncated,
+         service.isComparingDirectory, service.isMutating, filterVisible]
+    }
+
     @ViewBuilder
     private var remoteBody: some View {
         VStack(spacing: 0) {
             if let message = service.errorMessage {
                 errorBanner(message)
+                    .transition(bannerTransition)
             }
             if service.listingTruncated {
                 HStack(spacing: DS.Space.s) {
@@ -551,6 +574,7 @@ struct RemoteFilePane: View {
                 .padding(.horizontal, DS.Space.m)
                 .padding(.vertical, 4)
                 .background(DS.Colors.statusConnecting.opacity(0.12))
+                .transition(bannerTransition)
             }
             if service.isComparingDirectory {
                 HStack(spacing: DS.Space.s) {
@@ -563,6 +587,7 @@ struct RemoteFilePane: View {
                 .padding(.horizontal, DS.Space.m)
                 .padding(.vertical, 4)
                 .background(DS.Colors.separator.opacity(0.35))
+                .transition(bannerTransition)
             }
             if service.isMutating {
                 HStack(spacing: DS.Space.s) {
@@ -578,6 +603,7 @@ struct RemoteFilePane: View {
                 .padding(.horizontal, DS.Space.m)
                 .padding(.vertical, 4)
                 .background(DS.Colors.separator.opacity(0.35))
+                .transition(bannerTransition)
             }
             if filterVisible {
                 HStack(spacing: DS.Space.xs) {
@@ -590,20 +616,15 @@ struct RemoteFilePane: View {
                         .focused($filterFocused)
                         .onSubmit { filterFocused = true }
                     if !filterText.isEmpty {
-                        Button {
+                        InlineIconButton("xmark.circle.fill", help: L("清除筛选"), size: 10) {
                             filterText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .help(L("清除筛选"))
                     }
                 }
                 .padding(.horizontal, DS.Space.m)
                 .padding(.vertical, 4)
                 .background(DS.Colors.separator.opacity(0.25))
+                .transition(bannerTransition)
             }
             if treeVisible {
                 HStack(spacing: 0) {
@@ -627,7 +648,8 @@ struct RemoteFilePane: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.15), value: actionHint)
+        .animation(DS.Anim.toast, value: actionHint)
+        .animation(DS.Anim.state, value: bannerSignature)
         .background {
             // ⌘F reveals and focuses the name-filter field.
             Button("") { filterVisible = true; filterFocused = true }
@@ -684,14 +706,9 @@ struct RemoteFilePane: View {
                 .buttonStyle(.glass)
                 .controlSize(.mini)
                 .disabled(!canInteract)
-            Button {
+            InlineIconButton("xmark", help: L("关闭提示"), size: 9) {
                 service.errorMessage = nil
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
             }
-            .buttonStyle(.borderless)
-            .help(L("关闭提示"))
         }
         .padding(.horizontal, DS.Space.m)
         .padding(.vertical, 4)
@@ -736,7 +753,7 @@ struct RemoteFilePane: View {
                             .truncationMode(.middle)
                         if let target = entry.linkTarget {
                             Text("→ \(target)")
-                                .font(.system(size: 10))
+                                .font(.caption2)
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -749,7 +766,7 @@ struct RemoteFilePane: View {
 
             TableColumn(L("大小"), sortUsing: RemoteFileEntrySortComparator(.size)) { entry in
                 Text(DualPaneFileView.sizeText(entry.sizeBytes, isDirectory: entry.isDirectory))
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.system(size: columnFontSize).monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -757,21 +774,21 @@ struct RemoteFilePane: View {
 
             TableColumn(L("修改时间"), sortUsing: RemoteFileEntrySortComparator(.modificationTime)) { entry in
                 Text(DualPaneFileView.dateText(entry.mtimeEpoch))
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.system(size: columnFontSize).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             .width(min: 100, ideal: 118, max: 130)
 
             TableColumn(L("权限")) { entry in
                 Text(entry.permissions)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: columnFontSize, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
             .width(min: 78, ideal: 88, max: 110)
 
             TableColumn(L("用户/组")) { entry in
                 Text("\(entry.uid):\(entry.gid)")
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.system(size: columnFontSize).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             .width(min: 50, ideal: 64, max: 110)
@@ -1212,7 +1229,7 @@ private struct PermissionsSheet: View {
             }
         }
         .padding(DS.Space.l)
-        .frame(width: 320)
+        .frame(minWidth: 320)
     }
 
     private func permRow(_ label: String, _ row: Int) -> some View {

@@ -15,6 +15,9 @@ struct ProcessDetailView: View {
     /// The process whose detail popover is open (tapping a row). Wrapped so it
     /// can drive `.popover(item:)`; identified by pid.
     @State private var inspected: InspectedProcess?
+    /// pid of the row whose kill button is hovered, so only that glyph brightens.
+    @State private var hoveredKillPID: Int?
+    @ScaledMetric(relativeTo: .caption) private var rowFontSize: CGFloat = 10.5
 
     private struct InspectedProcess: Identifiable {
         let process: TopProcess
@@ -58,16 +61,11 @@ struct ProcessDetailView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                Button {
-                    sortAscending.toggle()
-                } label: {
-                    Image(systemName: sortAscending ? "arrow.up" : "arrow.down")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(width: 22, height: 22)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help(sortAscending ? L("升序") : L("降序"))
+                MonitorIconButton(
+                    systemName: sortAscending ? "arrow.up" : "arrow.down",
+                    label: sortAscending ? L("升序") : L("降序"),
+                    box: CGSize(width: 22, height: 22)
+                ) { sortAscending.toggle() }
             }
 
             // Transient banner for a failed kill (e.g. permission denied / gone).
@@ -81,13 +79,12 @@ struct ProcessDetailView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                     Spacer(minLength: 0)
-                    Button { monitor.lastActionError = nil } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(L("关闭"))
+                    MonitorIconButton(
+                        systemName: "xmark.circle.fill",
+                        label: L("关闭"),
+                        weight: .regular,
+                        rest: AnyShapeStyle(.tertiary)
+                    ) { monitor.lastActionError = nil }
                 }
             }
 
@@ -127,7 +124,7 @@ struct ProcessDetailView: View {
                             // discoverable without knowing about the right-click.
                             killButton(for: proc)
                         }
-                        .font(.system(size: 10.5).monospacedDigit())
+                        .font(.system(size: rowFontSize).monospacedDigit())
                         // Tap a row to inspect; whole-row hit target also backs
                         // the right-click menu over the empty 命令 stretch.
                         .contentShape(Rectangle())
@@ -184,15 +181,22 @@ struct ProcessDetailView: View {
                 pendingKill = ProcessKillTarget(process: proc, signal: .term)
             } label: {
                 if monitor.isTerminating(proc.pid) {
-                    ProgressView().scaleEffect(0.5)
+                    ProgressView().scaleEffect(monitorSpinnerScale)
                 } else {
                     Image(systemName: "stop.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(DS.Colors.statusError)
+                        .foregroundStyle(hoveredKillPID == proc.pid
+                                         ? DS.Colors.statusError.opacity(0.7) : DS.Colors.statusError)
                 }
             }
             .buttonStyle(.plain)
+            .pressFeedback()
+            .onHover { hovering in
+                if hovering { hoveredKillPID = proc.pid }
+                else if hoveredKillPID == proc.pid { hoveredKillPID = nil }
+            }
             .help(L("结束进程"))
+            .accessibilityLabel(L("结束进程"))
             .disabled(monitor.isTerminating(proc.pid))
         } else {
             Color.clear.frame(width: 12, height: 12)
@@ -223,11 +227,16 @@ struct ProcessInspectorView: View {
     /// Ports this pid is listening on (from the same on-demand `ss` probe),
     /// shown so "what is this process serving" is answerable inline.
     @State private var listening: [ListeningPort] = []
+    @ScaledMetric(relativeTo: .callout) private var titleFontSize: CGFloat = 12
+    @ScaledMetric(relativeTo: .caption) private var infoFontSize: CGFloat = 11
+    @ScaledMetric(relativeTo: .caption) private var commandFontSize: CGFloat = 10.5
+    @ScaledMetric(relativeTo: .caption2) private var portProtoFontSize: CGFloat = 9.5
+    @ScaledMetric(relativeTo: .caption) private var portAddrFontSize: CGFloat = 10.5
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
             Text(process.command)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: titleFontSize, weight: .semibold))
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -257,12 +266,12 @@ struct ProcessInspectorView: View {
                         infoRow(L("启动时间"), d.startTime)
                     }
                 }
-                .font(.system(size: 11).monospacedDigit())
+                .font(.system(size: infoFontSize).monospacedDigit())
 
                 if !d.command.isEmpty {
                     Text(L("命令行")).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
                     Text(d.command)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.system(size: commandFontSize, design: .monospaced))
                         .textSelection(.enabled)
                         .lineLimit(4)
                         .truncationMode(.middle)
@@ -274,10 +283,10 @@ struct ProcessInspectorView: View {
                     ForEach(listening) { p in
                         HStack(spacing: 5) {
                             Text(p.proto)
-                                .font(.system(size: 9.5, design: .monospaced))
+                                .font(.system(size: portProtoFontSize, design: .monospaced))
                                 .foregroundStyle(.tertiary)
                             Text("\(p.address):\(p.port)")
-                                .font(.system(size: 10.5, design: .monospaced))
+                                .font(.system(size: portAddrFontSize, design: .monospaced))
                                 .foregroundStyle(p.isWildcard ? AnyShapeStyle(DS.Colors.statusConnecting) : AnyShapeStyle(.secondary))
                                 .textSelection(.enabled)
                             Spacer(minLength: 0)
@@ -408,6 +417,8 @@ struct PortsDetailView: View {
     @State private var loadFailed = false
     @State private var query = ""
     @State private var pendingKill: PortKillTarget?
+    @ScaledMetric(relativeTo: .callout) private var searchFontSize: CGFloat = 12
+    @ScaledMetric(relativeTo: .caption) private var rowFontSize: CGFloat = 10.5
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
@@ -417,17 +428,12 @@ struct PortsDetailView: View {
                     .foregroundStyle(.tertiary)
                 TextField(L("搜索端口 / 进程 / 地址"), text: $query)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.system(size: searchFontSize))
                 Spacer(minLength: 0)
-                Button {
-                    Task { await load() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help(L("刷新"))
+                MonitorIconButton(
+                    systemName: "arrow.clockwise",
+                    label: L("刷新")
+                ) { Task { await load() } }
                 .disabled(loading)
             }
             .padding(.horizontal, DS.Space.s)
@@ -509,7 +515,7 @@ struct PortsDetailView: View {
                         .help(processLabel(port))
                     killButton(for: port)
                 }
-                .font(.system(size: 10.5).monospacedDigit())
+                .font(.system(size: rowFontSize).monospacedDigit())
             }
         }
     }
@@ -517,16 +523,17 @@ struct PortsDetailView: View {
     @ViewBuilder
     private func killButton(for port: ListeningPort) -> some View {
         if port.pid > 0 {
-            Button {
+            MonitorIconButton(
+                systemName: "stop.circle.fill",
+                label: L("结束占用此端口的进程"),
+                size: 12,
+                weight: .regular,
+                rest: AnyShapeStyle(DS.Colors.statusError),
+                hover: AnyShapeStyle(DS.Colors.statusError.opacity(0.7))
+            ) {
                 pendingKill = PortKillTarget(
                     pid: port.pid, process: port.process, port: port.port, signal: .term)
-            } label: {
-                Image(systemName: "stop.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(DS.Colors.statusError)
             }
-            .buttonStyle(.plain)
-            .help(L("结束占用此端口的进程"))
         } else {
             Color.clear.frame(width: 12, height: 12)
         }

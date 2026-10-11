@@ -13,6 +13,9 @@ struct DockerPanelView: View {
     @State private var deleteID: String? = nil
     @State private var imageDeleteID: String? = nil
     @State private var autoFollow = true
+    @State private var refreshHover = false
+    @State private var errorDismissHover = false
+    @State private var logsRefreshHover = false
 
     private var selectedContainer: DockerContainer? {
         guard let selectedID else { return nil }
@@ -96,7 +99,7 @@ struct DockerPanelView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 switch service.status {
-                case .loading: ProgressView().scaleEffect(0.6)
+                case .loading: ProgressView().controlSize(.small).scaleEffect(0.8)
                 case .unavailable(let msg): Text(msg).font(.caption).foregroundStyle(.red).lineLimit(1)
                 default: EmptyView()
                 }
@@ -110,10 +113,15 @@ struct DockerPanelView: View {
                     .help(L("显示/隐藏容器日志"))
                     .disabled(selectedContainer == nil)
                 Button { service.refresh() } label: {
-                    Image(systemName: "arrow.clockwise").font(.caption)
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                        .foregroundStyle(refreshHover ? .primary : .secondary)
                 }
                 .buttonStyle(.plain)
+                .pressFeedback()
+                .onHover { refreshHover = $0 }
                 .help(L("刷新 Docker 状态"))
+                .accessibilityLabel(L("刷新 Docker 状态"))
                 .disabled(service.isRefreshing)
             }
             .padding(.horizontal, 8)
@@ -123,7 +131,7 @@ struct DockerPanelView: View {
             if let error = service.lastError {
                 HStack(spacing: 5) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
+                        .font(.caption2)
                         .foregroundStyle(.red)
                     Text(error)
                         .font(.caption)
@@ -132,11 +140,14 @@ struct DockerPanelView: View {
                     Spacer(minLength: 0)
                     Button { service.lastError = nil } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
+                            .font(.caption)
+                            .foregroundStyle(errorDismissHover ? .secondary : .tertiary)
                     }
                     .buttonStyle(.plain)
+                    .pressFeedback()
+                    .onHover { errorDismissHover = $0 }
                     .help(L("关闭"))
+                    .accessibilityLabel(L("关闭"))
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
@@ -280,7 +291,7 @@ struct DockerPanelView: View {
                     .lineLimit(1)
                 Spacer()
                 if loading {
-                    ProgressView().scaleEffect(0.55)
+                    ProgressView().controlSize(.small).scaleEffect(0.8)
                 }
                 Toggle(isOn: $autoFollow) {
                     Label(L("跟随"), systemImage: "arrow.down")
@@ -291,9 +302,13 @@ struct DockerPanelView: View {
                 Button { service.followLogs(for: container) } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.caption)
+                        .foregroundStyle(logsRefreshHover ? .primary : .secondary)
                 }
                 .buttonStyle(.plain)
+                .pressFeedback()
+                .onHover { logsRefreshHover = $0 }
                 .help(L("重新跟踪日志"))
+                .accessibilityLabel(L("重新跟踪日志"))
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -375,7 +390,7 @@ struct DockerContainerRow: View {
             }
             Spacer()
             if isBusy {
-                ProgressView().scaleEffect(0.55)
+                ProgressView().controlSize(.small).scaleEffect(0.8)
             }
             Menu {
                 Button(container.isRunning ? L("停止") : L("启动"), action: onToggle)

@@ -324,7 +324,7 @@ private struct DirectoryTreeRow: View, @MainActor Equatable {
                 .truncationMode(.middle)
             if row.isLoading {
                 ProgressView()
-                    .controlSize(.mini)
+                    .controlSize(.small)
                     .scaleEffect(0.6)
                     .frame(width: 12, height: 12)
             } else if row.failed {
@@ -359,10 +359,12 @@ private struct DirectoryTreeRow: View, @MainActor Equatable {
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(row.isExpanded ? 90 : 0))
+                    .animation(DS.Anim.state, value: row.isExpanded)
                     .frame(width: 12, height: 12)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(row.isExpanded ? L("折叠") : L("展开"))
         }
     }
 

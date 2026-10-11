@@ -2,8 +2,8 @@ import SwiftUI
 
 struct WelcomeGuideView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var currentPage = 0
-    @State private var appeared = false
 
     private static let pages: [GuidePage] = [
         GuidePage(
@@ -58,14 +58,18 @@ struct WelcomeGuideView: View {
                 ForEach(Array(Self.pages.enumerated()), id: \.offset) { index, page in
                     if index == currentPage {
                         pageView(page)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(
+                                reduceMotion
+                                ? .opacity
+                                : .asymmetric(
+                                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                                    removal: .move(edge: .leading).combined(with: .opacity)
+                                )
+                            )
                     }
                 }
             }
-            .animation(.spring(duration: 0.22), value: currentPage)
+            .animation(DS.Anim.state, value: currentPage)
             .clipped()
 
             Spacer(minLength: 0)
@@ -81,9 +85,10 @@ struct WelcomeGuideView: View {
                         Capsule()
                             .fill(index == currentPage ? Color.accentColor : Color.secondary.opacity(0.25))
                             .frame(width: index == currentPage ? 20 : 7, height: 7)
-                            .animation(.spring(duration: 0.2), value: currentPage)
+                            .animation(DS.Anim.state, value: currentPage)
+                            .pressFeedback()
                             .onTapGesture {
-                                withAnimation(.spring(duration: 0.22)) { currentPage = index }
+                                withAnimation(DS.Anim.state) { currentPage = index }
                             }
                     }
                 }
@@ -92,18 +97,18 @@ struct WelcomeGuideView: View {
 
                 if currentPage > 0 {
                     Button {
-                        withAnimation(.spring(duration: 0.22)) { currentPage -= 1 }
+                        withAnimation(DS.Anim.state) { currentPage -= 1 }
                     } label: {
                         Text(L("上一步"))
                             .frame(width: 70)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .controlSize(.large)
                 }
 
                 Button {
                     if currentPage < Self.pages.count - 1 {
-                        withAnimation(.spring(duration: 0.22)) { currentPage += 1 }
+                        withAnimation(DS.Anim.state) { currentPage += 1 }
                     } else {
                         dismiss()
                     }
@@ -111,7 +116,7 @@ struct WelcomeGuideView: View {
                     Text(currentPage < Self.pages.count - 1 ? L("继续") : L("开始使用"))
                         .frame(width: 70)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .controlSize(.large)
             }
             .padding(.horizontal, 30)
@@ -119,9 +124,6 @@ struct WelcomeGuideView: View {
             .padding(.top, 10)
         }
         .frame(width: 540, height: 430)
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.22).delay(0.03)) { appeared = true }
-        }
     }
 
     private func pageView(_ page: GuidePage) -> some View {
@@ -133,12 +135,7 @@ struct WelcomeGuideView: View {
                     endPoint: .bottomTrailing
                 )
 
-                Image(systemName: page.symbol)
-                    .font(.system(size: 48, weight: .thin))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
-                    .scaleEffect(appeared ? 1.0 : 0.6)
-                    .opacity(appeared ? 1.0 : 0)
+                GuideHeroIcon(symbol: page.symbol)
             }
             .frame(height: 110)
 
@@ -180,6 +177,33 @@ struct WelcomeGuideView: View {
                     .lineLimit(2)
             }
         }
+    }
+}
+
+/// The gradient-header hero icon. Animates itself in (scale + fade) on appear,
+/// so every page change re-triggers the entrance — not only the first page
+/// (each page's subtree is freshly inserted by the ZStack transition, so its
+/// `onAppear` fires anew). Under Reduce Motion it appears immediately with no
+/// scale or fade.
+private struct GuideHeroIcon: View {
+    let symbol: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 48, weight: .thin))
+            .foregroundStyle(.white.opacity(0.9))
+            .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+            .scaleEffect(reduceMotion ? 1.0 : (shown ? 1.0 : 0.6))
+            .opacity(shown ? 1.0 : 0)
+            .onAppear {
+                if reduceMotion {
+                    shown = true
+                } else {
+                    withAnimation(DS.Anim.state.delay(0.03)) { shown = true }
+                }
+            }
     }
 }
 

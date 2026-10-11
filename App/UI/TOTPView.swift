@@ -95,7 +95,7 @@ struct TOTPSetupView: View {
 
             footer
         }
-        .frame(width: 460, height: 500)
+        .frame(minWidth: 460, idealWidth: 460, maxWidth: 560, minHeight: 500, idealHeight: 500, maxHeight: 500)
         .confirmationDialog(
             L("删除两步验证密钥？"),
             isPresented: $showDeleteConfirmation,
@@ -131,13 +131,17 @@ struct TOTPSetupView: View {
                 .buttonStyle(.glass)
             }
             Spacer()
-            Button(L("取消"), role: .cancel) { dismiss() }
-                .buttonStyle(.glass)
-                .keyboardShortcut(.cancelAction)
-            Button(L("保存")) { save() }
-                .buttonStyle(.glassProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canSave)
+            GlassEffectContainer(spacing: DS.Space.s) {
+                HStack(spacing: DS.Space.s) {
+                    Button(L("取消"), role: .cancel) { dismiss() }
+                        .buttonStyle(.glass)
+                        .keyboardShortcut(.cancelAction)
+                    Button(L("保存")) { save() }
+                        .buttonStyle(.glassProminent)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!canSave)
+                }
+            }
         }
         .padding(20)
     }
@@ -189,6 +193,9 @@ struct TOTPStatusView: View {
     var onSend: ((String) -> Void)?
 
     @State private var secret: String?
+    @State private var codeCopied = false
+    @State private var isHoveringCopy = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -210,19 +217,30 @@ struct TOTPStatusView: View {
                 Text(verbatim: TOTPStatusView.grouped(code))
                     .font(.system(size: 22, weight: .semibold, design: .monospaced))
                     .textSelection(.enabled)
-                    .contentTransition(.numericText())
+                    .contentTransition(reduceMotion ? .identity : .numericText())
 
                 Spacer(minLength: DS.Space.s)
 
                 Button {
                     copy(code)
+                    withAnimation(DS.Anim.state) { codeCopied = true }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        withAnimation(DS.Anim.state) { codeCopied = false }
+                    }
                 } label: {
-                    Image(systemName: "doc.on.doc")
+                    Image(systemName: codeCopied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(copyTint)
+                        .frame(width: 22, height: 20)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.plain)
+                .pressFeedback()
+                .onHover { isHoveringCopy = $0 }
                 .disabled(code.isEmpty)
                 .help(L("复制验证码"))
+                .accessibilityLabel(L("复制验证码"))
 
                 if let onSend {
                     Button(L("发送到终端")) { onSend(code) }
@@ -251,6 +269,13 @@ struct TOTPStatusView: View {
     private func copy(_ code: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(code, forType: .string)
+    }
+
+    /// Resting secondary, hover primary, and a green flash while the just-copied
+    /// checkmark is showing — the visual acknowledgment the copy button lacked.
+    private var copyTint: Color {
+        if codeCopied { return DS.Colors.statusRunning }
+        return isHoveringCopy ? .primary : .secondary
     }
 
     /// "123456" → "123 456" for readability. Non-6-digit codes are left as-is.

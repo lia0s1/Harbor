@@ -96,9 +96,9 @@ struct BottomPanelView: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: symbol)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.caption.weight(.medium))
                 Text(title)
-                    .font(.system(size: 12, weight: isOn ? .semibold : .regular))
+                    .font(.callout.weight(isOn ? .semibold : .regular))
             }
             .foregroundStyle(isOn ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
             .padding(.horizontal, DS.Space.s + 2)
@@ -228,7 +228,7 @@ struct QuickCommandPanelView: View {
         HStack(spacing: DS.Space.xs) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
+                    .font(.caption2)
                     .foregroundStyle(.tertiary)
                 TextField(L("搜索命令…"), text: $searchText)
                     .textFieldStyle(.plain)
@@ -236,7 +236,7 @@ struct QuickCommandPanelView: View {
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
+                            .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
@@ -252,7 +252,7 @@ struct QuickCommandPanelView: View {
 
             if !canSend {
                 Image(systemName: "moon.zzz")
-                    .font(.system(size: 10))
+                    .font(.caption2)
                     .foregroundStyle(.tertiary)
                 Text(L("会话未运行，点击命令暂不可发送"))
                     .font(.caption)
@@ -364,7 +364,7 @@ struct QuickCommandPanelView: View {
     private var emptyState: some View {
         VStack(spacing: DS.Space.s) {
             Image(systemName: "terminal")
-                .font(.system(size: 22, weight: .light))
+                .font(.title.weight(.light))
                 .foregroundStyle(.tertiary)
             Text(L("还没有保存的命令"))
                 .font(.callout.weight(.medium))
@@ -439,19 +439,19 @@ private struct QuickCommandRow: View {
             Button(action: onSend) {
                 HStack(spacing: DS.Space.s) {
                     Image(systemName: "chevron.right.circle.fill")
-                        .font(.system(size: 14))
+                        .font(.title3)
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(disabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
 
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 5) {
                             Text(verbatim: command.displayTitle)
-                                .font(.system(size: 12.5, weight: .medium))
+                                .font(.callout.weight(.medium))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                             if command.hasParameters {
                                 Text(L("参数"))
-                                    .font(.system(size: 9, weight: .semibold))
+                                    .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 1)
@@ -460,7 +460,7 @@ private struct QuickCommandRow: View {
                         }
                         if command.displayTitle != command.command {
                             Text(command.command)
-                                .font(.system(size: 10.5, design: .monospaced))
+                                .font(.system(.caption2, design: .monospaced))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -482,7 +482,7 @@ private struct QuickCommandRow: View {
                 Button(L("删除"), role: .destructive, action: onDelete)
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.callout.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 24, height: 22)
                     .contentShape(Rectangle())
@@ -510,8 +510,8 @@ private struct CommandRowButtonStyle: ButtonStyle {
                           : isHovering && !disabled ? DS.Colors.rowBackground : .clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: DS.Radius.small + 1))
-            .scaleEffect(configuration.isPressed && !disabled ? 0.97 : 1.0)
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !disabled ? DS.Anim.pressedScale : 1.0)
+            .animation(DS.Anim.press, value: configuration.isPressed)
     }
 }
 
@@ -552,7 +552,7 @@ private struct QuickCommandParameterSheet: View {
 
             // Live preview of the resolved command.
             Text(prompt.command.substitute(values))
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
@@ -639,7 +639,7 @@ struct QuickCommandEditor: View {
             Form {
                 TextField(L("标题"), text: $draft.title, prompt: Text(L("可选，留空则显示命令本身")))
                 TextField(L("命令"), text: $draft.command, prompt: Text(L("例如：systemctl restart {service}")))
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(.callout, design: .monospaced))
                 TextField(L("分组"), text: $draft.group, prompt: Text(L("可选，用于分类")))
             }
             .formStyle(.columns)
@@ -647,7 +647,7 @@ struct QuickCommandEditor: View {
             if draft.hasParameters {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Image(systemName: "curlybraces")
-                        .font(.system(size: 10))
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                     Text(L("发送时将提示输入：%@", draft.parameters.joined(separator: "、")))
                         .font(.caption)
