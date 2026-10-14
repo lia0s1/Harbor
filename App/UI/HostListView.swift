@@ -19,11 +19,13 @@ enum PendingHostConnect {
     }
 }
 
-/// Sidebar: searchable host list grouped into sections by tag ("未分组"
-/// last; a host with N tags appears in N sections), full context menus,
-/// add/edit sheets, import from ~/.ssh/config, and a quick-connect footer.
+/// Sidebar: searchable host tree grouped by folders (collapsible sections,
+/// drag hosts in/out, folder CRUD via context menu and the toolbar menu),
+/// full host context menus, add/edit sheets, text bulk import, import from
+/// ~/.ssh/config, and a quick-connect footer.
 struct HostListView: View {
     @EnvironmentObject private var hostStore: HostStore
+    @EnvironmentObject private var folderStore: HostFolderStore
     @EnvironmentObject private var sessionManager: SessionManager
     @EnvironmentObject private var localization: LocalizationManager
     @Binding var selectedHostID: UUID?
@@ -41,11 +43,18 @@ struct HostListView: View {
     @State private var cachedLiveHostIDs: Set<UUID> = []
     @State private var cachedMatchCount = 0
     @State private var isImporting = false
+    @State private var isImportingText = false
+    @State private var isShowingLANDiscovery = false
+    /// Folders the user collapsed; everything else stays expanded.
+    @State private var collapsedFolders: Set<UUID> = []
+    @State private var folderDialog: FolderDialog?
+    @State private var folderNameText = ""
+    @State private var folderPendingDeletion: HostFolder?
 
-    /// Drag-to-reorder is only meaningful when there is a single flat section
-    /// and no active search filter, so section-relative indices map 1-to-1
-    /// onto the underlying `hostStore.hosts` array.
-    private var canReorder: Bool { searchText.isEmpty && cachedSections.count == 1 }
+    /// Drag-to-reorder is only meaningful when there are no folders (single
+    /// flat section) and no active search filter, so section-relative indices
+    /// map 1-to-1 onto the underlying `hostStore.hosts` array.
+    private var canReorder: Bool { searchText.isEmpty && folderStore.items.isEmpty }
 
     private func moveHosts(fromOffsets source: IndexSet, toOffset destination: Int) {
         hostStore.move(fromOffsets: source, toOffset: destination)
@@ -54,19 +63,30 @@ struct HostListView: View {
 
     private var hostList: some View {
         List(selection: $selectedHostID) {
-            ForEach(cachedSections, id: \.title) { section in
-                Section {
-                    ForEach(section.hosts) { host in
-                        row(for: host, isLive: cachedLiveHostIDs.contains(host.id))
+            ForEach(cachedSections) { section in
+                if let folder = section.folder {
+                    Section(isExpanded: expansionBinding(for: folder.id)) {
+                        ForEach(section.hosts) { host in
+                            row(for: host, isLive: cachedLiveHostIDs.contains(host.id))
+                        }
+                    } header: {
+                        folderHeader(folder, count: section.hosts.count)
                     }
-                    .onMove { source, dest in
-                        // Guard so that reordering only applies when all hosts are
-                        // in a single flat section with no active search filter.
-                        guard canReorder else { return }
-                        moveHosts(fromOffsets: source, toOffset: dest)
+                } else {
+                    Section {
+                        ForEach(section.hosts) { host in
+                            row(for: host, isLive: cachedLiveHostIDs.contains(host.id))
+                        }
+                        .onMove { source, dest in
+                            // Guard so that reordering only applies when all
+                            // hosts are in a single flat section with no active
+                            // search filter.
+                            guard canReorder else { return }
+                            moveHosts(fromOffsets: source, toOffset: dest)
+                        }
+                    } header: {
+                        unfiledHeader(title: section.title, count: section.hosts.count)
                     }
-                } header: {
-                    SidebarSectionHeader(title: section.title, count: section.hosts.count)
                 }
             }
         }
@@ -100,6 +120,9 @@ struct HostListView: View {
             // the whole host array for Equatable comparison.
             DispatchQueue.main.async { rebuildSections() }
         }
+        .onReceive(folderStore.objectWillChange) { _ in
+            DispatchQueue.main.async { rebuildSections() }
+        }
         .onReceive(sessionManager.objectWillChange) { _ in
             DispatchQueue.main.async { rebuildLiveIDs() }
         }
@@ -122,6 +145,50 @@ struct HostListView: View {
         .sheet(item: $editingHost) { host in
             HostEditorView(title: L("编辑主机"), host: host) { hostStore.update($0) }
                 .localized(localization)
+        }
+        .sheet(isPresented: $isImportingText) {
+            HostImportTextView()
+                .localized(localization)
+        }
+        .sheet(isPresented: $isShowingLANDiscovery) {
+            LANDiscoveryView(
+                onAddHosts: { _ = hostStore.importHosts($0) },
+                existingHostnames: Set(hostStore.hosts.map(\.hostname))
+            )
+            .localized(localization)
+        }
+        .alert(
+            folderDialog?.title ?? "",
+            isPresented: Binding(
+                get: { folderDialog != nil },
+                set: { if !$0 { folderDialog = nil } }
+            )
+        ) {
+            TextField(L("文件夹名称"), text: $folderNameText)
+            Button(L("好")) { commitFolderDialog() }
+                .disabled(HostFolderStore.sanitizedName(folderNameText) == nil)
+            Button(L("取消"), role: .cancel) { folderDialog = nil }
+        }
+        .confirmationDialog(
+            L("删除文件夹“%@”？", folderPendingDeletion?.name ?? ""),
+            isPresented: Binding(
+                get: { folderPendingDeletion != nil },
+                set: { if !$0 { folderPendingDeletion = nil } }
+            )
+        ) {
+            Button("删除", role: .destructive) {
+                if let folder = folderPendingDeletion {
+                    // Hosts keep living — they just fall back to the root.
+                    folderStore.delete(ids: [folder.id])
+                    hostStore.clearFolderReferences(folder.id)
+                }
+                folderPendingDeletion = nil
+            }
+            Button("取消", role: .cancel) {
+                folderPendingDeletion = nil
+            }
+        } message: {
+            Text(L("文件夹中的主机会移回未分组，不会被删除。"))
         }
         .confirmationDialog(
             L("删除“%@”？", hostPendingDeletion?.displayName ?? ""),
@@ -210,10 +277,133 @@ struct HostListView: View {
         let rdpConn = sessionManager.rdpConnection(for: host)
         let rdpRunning = rdpConn?.isRunning ?? false
         let rdpError = rdpConn?.errorMessage != nil
-        HostRowView(host: host, isLive: isLive, rdpRunning: rdpRunning, rdpError: rdpError)
+        let base = HostRowView(host: host, isLive: isLive, rdpRunning: rdpRunning, rdpError: rdpError)
             .tag(host.id)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
+        if folderStore.items.isEmpty {
+            // No folders: rows participate only in the List's onMove reorder.
+            base
+        } else {
+            // With folders present, onMove reorder is disabled (section
+            // indices no longer map onto the store) and drags carry the host
+            // id for dropping into folder headers or back onto the root.
+            base.draggable(host.id.uuidString)
+        }
+    }
+
+    /// Folder section header: icon + name + count, drop target for host rows,
+    /// context menu for rename/reorder/delete.
+    @ViewBuilder
+    private func folderHeader(_ folder: HostFolder, count: Int) -> some View {
+        let header = HStack(spacing: 6) {
+            Image(systemName: "folder.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(folder.name)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+            CountBadge(count: count)
+        }
+        if searchText.isEmpty {
+            header
+                .dropDestination(for: String.self) { items, _ in
+                    handleHostDrop(items, into: folder.id)
+                }
+                .contextMenu { folderContextMenu(folder) }
+        } else {
+            header
+        }
+    }
+
+    /// The unfiled ("未分组" / "主机") header; doubles as the drop target for
+    /// moving a host back out of its folder once folders exist.
+    @ViewBuilder
+    private func unfiledHeader(title: String, count: Int) -> some View {
+        let header = SidebarSectionHeader(title: title, count: count)
+        if searchText.isEmpty && !folderStore.items.isEmpty {
+            header
+                .dropDestination(for: String.self) { items, _ in
+                    handleHostDrop(items, into: nil)
+                }
+        } else {
+            header
+        }
+    }
+
+    @ViewBuilder
+    private func folderContextMenu(_ folder: HostFolder) -> some View {
+        Button(L("重命名文件夹…")) {
+            folderNameText = folder.name
+            folderDialog = .rename(folder)
+        }
+        let ordered = folderStore.folders
+        if let index = ordered.firstIndex(where: { $0.id == folder.id }) {
+            Button(L("上移")) { folderStore.moveFolder(folder.id, offset: -1) }
+                .disabled(index == 0)
+            Button(L("下移")) { folderStore.moveFolder(folder.id, offset: 1) }
+                .disabled(index == ordered.count - 1)
+        }
+        Divider()
+        Button(L("删除文件夹…"), role: .destructive) {
+            folderPendingDeletion = folder
+        }
+    }
+
+    /// Drop payloads are host id strings (`row` uses `.draggable(uuidString)`).
+    private func handleHostDrop(_ items: [String], into folderID: UUID?) -> Bool {
+        var moved = false
+        for item in items {
+            guard let id = UUID(uuidString: item) else { continue }
+            hostStore.assign(id, toFolder: folderID)
+            moved = true
+        }
+        return moved
+    }
+
+    private func expansionBinding(for folderID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedFolders.contains(folderID) },
+            set: { expanded in
+                if expanded {
+                    collapsedFolders.remove(folderID)
+                } else {
+                    collapsedFolders.insert(folderID)
+                }
+            }
+        )
+    }
+
+    private enum FolderDialog: Identifiable {
+        case new
+        case rename(HostFolder)
+
+        var id: String {
+            switch self {
+            case .new: return "new"
+            case .rename(let folder): return folder.id.uuidString
+            }
+        }
+
+        @MainActor
+        var title: String {
+            switch self {
+            case .new: return L("新建文件夹")
+            case .rename: return L("重命名文件夹")
+            }
+        }
+    }
+
+    private func commitFolderDialog() {
+        guard let dialog = folderDialog else { return }
+        switch dialog {
+        case .new:
+            _ = folderStore.createFolder(name: folderNameText)
+        case .rename(let folder):
+            _ = folderStore.renameFolder(folder.id, name: folderNameText)
+        }
+        folderDialog = nil
+        folderNameText = ""
     }
 
     @ViewBuilder
@@ -252,24 +442,26 @@ struct HostListView: View {
         }
     }
 
-    private struct HostSection {
+    private struct HostSection: Identifiable {
+        /// nil = the unfiled root section.
+        let folder: HostFolder?
         let title: String
         let hosts: [SSHHost]
+
+        var id: UUID { folder?.id ?? Self.unfiledID }
+        private static let unfiledID = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
     }
 
     private func rebuildSections() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let matched: [SSHHost]
         if query.isEmpty {
-            cachedMatchCount = hostStore.hosts.count
-            cachedSections = groupedSections(from: hostStore.hosts)
-            return
-        }
-        var matched: [SSHHost] = []
-        for host in hostStore.hosts where hostMatches(host, query: query) {
-            matched.append(host)
+            matched = hostStore.hosts
+        } else {
+            matched = hostStore.hosts.filter { hostMatches($0, query: query) }
         }
         cachedMatchCount = matched.count
-        cachedSections = groupedSections(from: matched)
+        cachedSections = groupedSections(from: matched, showEmptyFolders: query.isEmpty)
     }
 
     private func hostMatches(_ host: SSHHost, query: String) -> Bool {
@@ -291,38 +483,33 @@ struct HostListView: View {
         })
     }
 
-    /// One section per tag, alphabetical (case-insensitive); hosts without
-    /// tags land in "未分组", which always sorts last. When no host has any
-    /// tag the single section is just titled "主机".
-    private func groupedSections(from hosts: [SSHHost]) -> [HostSection] {
-        var byTag: [String: [SSHHost]] = [:]
-        var tagTitles: [String: String] = [:] // lowercased key -> first-seen spelling
-        var untagged: [SSHHost] = []
-
-        for host in hosts {
-            let tags = host.tags
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-            guard !tags.isEmpty else {
-                untagged.append(host)
-                continue
-            }
-            var seen = Set<String>()
-            for tag in tags {
-                let key = tag.lowercased()
-                guard seen.insert(key).inserted else { continue }
-                byTag[key, default: []].append(host)
-                if tagTitles[key] == nil { tagTitles[key] = tag }
-            }
+    /// Sections follow the folder tree: each folder (in folder order) gets a
+    /// collapsible section; hosts with a nil or dangling folderID land in the
+    /// unfiled root section. With no folders at all the single section keeps
+    /// the pre-folder flat look ("主机"). While searching, empty folder
+    /// sections collapse away so the list shows only matches.
+    private func groupedSections(from hosts: [SSHHost], showEmptyFolders: Bool) -> [HostSection] {
+        let folders = folderStore.folders
+        guard !folders.isEmpty else {
+            return hosts.isEmpty ? [] : [HostSection(folder: nil, title: L("主机"), hosts: hosts)]
         }
-
-        var result = byTag.keys.sorted().map { key in
-            HostSection(title: tagTitles[key] ?? key, hosts: byTag[key] ?? [])
+        let knownIDs = Set(folders.map(\.id))
+        var sections: [HostSection] = folders.map { folder in
+            HostSection(
+                folder: folder,
+                title: folder.name,
+                hosts: hosts.filter { $0.folderID == folder.id }
+            )
         }
-        if !untagged.isEmpty {
-            result.append(HostSection(title: result.isEmpty ? L("主机") : L("未分组"), hosts: untagged))
+        if !showEmptyFolders {
+            sections.removeAll { $0.hosts.isEmpty }
         }
-        return result
+        let unfiled = hosts.filter { host in
+            guard let folderID = host.folderID else { return true }
+            return !knownIDs.contains(folderID)
+        }
+        sections.append(HostSection(folder: nil, title: L("未分组"), hosts: unfiled))
+        return sections
     }
 
     @ViewBuilder
@@ -339,6 +526,7 @@ struct HostListView: View {
                     Button("添加主机…") { isAddingHost = true }
                     Button("从 ~/.ssh/config 导入…") { importFromSSHConfig() }
                         .disabled(isImporting)
+                    Button("从文本导入…") { isImportingText = true }
                 }
             }
         } else if cachedMatchCount == 0 {
@@ -358,17 +546,25 @@ struct HostListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Just the add-host button. The former "更多" (ellipsis) menu only held
-        // "从 ~/.ssh/config 导入…", which is also in the File menu; it was an
-        // extra leading item that, together with the trailing file-panel button
-        // and the inspector toggle, overflowed the toolbar into a `»` at the
-        // 980pt minimum width (round-3 occlusion complaint). Dropping it keeps
-        // every toolbar control visible at the minimum size.
+        // A single toolbar item: click adds a host (primary action), the
+        // chevron holds folder creation and the two import paths. A separate
+        // ellipsis menu was removed before — it overflowed the toolbar into a
+        // `»` at the 980pt minimum width; a Menu with primaryAction stays one
+        // compact button.
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                isAddingHost = true
+            Menu {
+                Button(L("新建文件夹…")) {
+                    folderNameText = ""
+                    folderDialog = .new
+                }
+                Divider()
+                Button(L("从文本导入…")) { isImportingText = true }
+                Button(L("局域网发现…")) { isShowingLANDiscovery = true }
+                Button(L("从 ~/.ssh/config 导入…")) { importFromSSHConfig() }
             } label: {
                 Label("添加主机", systemImage: "plus")
+            } primaryAction: {
+                isAddingHost = true
             }
             .help("添加主机 (⌘N)")
         }
@@ -525,10 +721,19 @@ struct HostRowView: View, Equatable {
                             .background(Capsule().fill(Color.primary.opacity(0.08)))
                     }
                 }
-                Text(subtitle)
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(subtitle)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    // GeoIP decoration; renders EmptyView unless the user
+                    // opted in via Settings, so default rows are unchanged.
+                    // fixedSize: the subtitle truncates first, the chip keeps
+                    // its natural width.
+                    HostLocationLabel(host: host.hostname)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
                 if !host.notes.isEmpty {
                     Text(host.notes)
                         .font(.caption)

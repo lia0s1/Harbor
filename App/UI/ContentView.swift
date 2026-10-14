@@ -6,6 +6,7 @@ struct ContentView: View {
     @EnvironmentObject private var sessionManager: SessionManager
     @EnvironmentObject private var quickCommandStore: QuickCommandStore
     @StateObject private var workspaceStore = WorkspaceStore()
+    @StateObject private var hostFolderStore = HostFolderStore()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedHostID: UUID?
     /// Bound so ⌘T can reopen a collapsed sidebar (its quick-connect footer
@@ -64,11 +65,13 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .harborExportHosts)) { _ in
             HostExportImport.exportHosts(hosts: hostStore.hosts,
-                                         commands: quickCommandStore.commands)
+                                         commands: quickCommandStore.commands,
+                                         folders: hostFolderStore.items)
         }
         .onReceive(NotificationCenter.default.publisher(for: .harborImportHosts)) { _ in
             HostExportImport.importHosts(hostStore: hostStore,
-                                         quickCommandStore: quickCommandStore)
+                                         quickCommandStore: quickCommandStore,
+                                         folderStore: hostFolderStore)
         }
         .onReceive(NotificationCenter.default.publisher(for: .harborQuickJump)) { _ in
             isQuickJumpOpen.toggle()
@@ -133,6 +136,7 @@ struct ContentView: View {
             }
         }
         .environmentObject(workspaceStore)
+        .environmentObject(hostFolderStore)
     }
 
     private var mainContent: some View {
@@ -371,6 +375,7 @@ private struct ToolSheetsModifier: ViewModifier {
 #Preview {
     ContentView()
         .environmentObject(HostStore())
+        .environmentObject(HostFolderStore())
         .environmentObject(SessionManager())
         .environmentObject(QuickCommandStore())
 }

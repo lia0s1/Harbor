@@ -9,6 +9,7 @@ import HarborKit
 enum HostExportImport {
     private static let maxImportBytes = 16 * 1024 * 1024
     private static let maxImportedItems = 10_000
+    private static let maxImportedFolders = 1_000
     @MainActor private static var isBusy = false
 
     // MARK: - Export
@@ -16,18 +17,18 @@ enum HostExportImport {
     /// Shows an NSSavePanel, then encodes and writes the selected bundle without
     /// blocking the window while a large backup is serialized.
     @MainActor
-    static func exportHosts(hosts: [SSHHost], commands: [QuickCommand]) {
+    static func exportHosts(hosts: [SSHHost], commands: [QuickCommand], folders: [HostFolder]) {
         guard !isBusy else { return }
         let panel = NSSavePanel()
         panel.title = L("导出主机")
-        panel.message = L("把已保存的主机和快捷命令存为一个 .harbor 备份文件。该文件为未加密的明文，包含主机名、用户名、密钥路径等信息，以及快捷命令中可能写入的口令，请妥善保管。")
+        panel.message = L("把已保存的主机、文件夹和快捷命令存为一个 .harbor 备份文件。该文件为未加密的明文，包含主机名、用户名、密钥路径等信息，以及快捷命令中可能写入的口令，请妥善保管。")
         panel.allowedContentTypes = [UTType(filenameExtension: "harbor") ?? .json]
         panel.nameFieldStringValue = "Harbor_Backup.harbor"
         panel.prompt = L("导出")
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         isBusy = true
-        let bundle = HostBundle(hosts: hosts, commands: commands)
+        let bundle = HostBundle(hosts: hosts, commands: commands, folders: folders)
         Task {
             defer { isBusy = false }
             let failure: String? = await Task.detached(priority: .userInitiated) { () -> String? in
@@ -76,12 +77,13 @@ enum HostExportImport {
     @MainActor
     static func importHosts(
         hostStore: HostStore,
-        quickCommandStore: QuickCommandStore
+        quickCommandStore: QuickCommandStore,
+        folderStore: HostFolderStore
     ) {
         guard !isBusy else { return }
         let panel = NSOpenPanel()
         panel.title = L("导入主机")
-        panel.message = L("选择一个 .harbor 备份文件。相同 ID 且连接目标一致的主机将更新；目标不一致时会作为新主机导入。")
+        panel.message = L("选择一个 .harbor 备份文件。相同 ID 且连接目标一致的主机将更新；目标不一致时会作为新主机导入。文件夹按 ID 合并。")
         panel.allowedContentTypes = [UTType(filenameExtension: "harbor") ?? .json]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -98,18 +100,21 @@ enum HostExportImport {
                 let outcome = merge(
                     bundle,
                     currentHosts: hostStore.hosts,
-                    currentCommands: quickCommandStore.commands
+                    currentCommands: quickCommandStore.commands,
+                    currentFolders: folderStore.items
                 )
                 hostStore.replaceAll(with: outcome.hosts)
                 quickCommandStore.replaceAll(with: outcome.commands)
+                folderStore.replaceAll(with: outcome.folders)
 
                 let alert = NSAlert()
                 alert.messageText = L("导入完成")
                 alert.informativeText = L(
-                    "已导入 %lld 台主机（其中 %lld 台更新，%lld 台新增），%lld 条命令（其中 %lld 条更新，%lld 条新增）。",
+                    "已导入 %lld 台主机（其中 %lld 台更新，%lld 台新增），%lld 条命令（其中 %lld 条更新，%lld 条新增），%lld 个文件夹。",
                     bundle.hosts.count, outcome.updatedHosts, outcome.addedHosts,
                     bundle.commands.count, outcome.updatedCommands,
-                    bundle.commands.count - outcome.updatedCommands
+                    bundle.commands.count - outcome.updatedCommands,
+                    bundle.folders?.count ?? 0
                 )
                 alert.runModal()
             case .importError(let error):
@@ -147,8 +152,23 @@ enum HostExportImport {
     private static func merge(
         _ bundle: HostBundle,
         currentHosts: [SSHHost],
-        currentCommands: [QuickCommand]
+        currentCommands: [QuickCommand],
+        currentFolders: [HostFolder]
     ) -> ImportOutcome {
+        // Folders merge first so imported hosts can be checked against the
+        // merged folder set: a host pointing at a folder the bundle does not
+        // contain (and the store never had) falls back to the root.
+        let incomingFolders = bundle.folders ?? []
+        var foldersByID = Dictionary(grouping: currentFolders, by: \.id).compactMapValues(\.first)
+        for folder in incomingFolders {
+            foldersByID[folder.id] = folder
+        }
+        let currentFolderIDs = Set(currentFolders.map(\.id))
+        var mergedFolders = currentFolders.compactMap { foldersByID[$0.id] }
+        mergedFolders += incomingFolders.filter { !currentFolderIDs.contains($0.id) }
+        for index in mergedFolders.indices { mergedFolders[index].order = index }
+        let validFolderIDs = Set(mergedFolders.map(\.id))
+
         var byID = Dictionary(grouping: currentHosts, by: \.id).compactMapValues(\.first)
         var updatedHosts = 0
         var addedHosts = 0
@@ -158,8 +178,14 @@ enum HostExportImport {
         // omit the host we just counted as added.
         var newHosts: [SSHHost] = []
         for var host in bundle.hosts {
+            if let folderID = host.folderID, !validFolderIDs.contains(folderID) {
+                host.folderID = nil
+            }
             if let existing = byID[host.id] {
                 if sameConnectionIdentity(existing, host) {
+                    // An update from a folderless backup must not evict the
+                    // host from its current folder.
+                    if host.folderID == nil { host.folderID = existing.folderID }
                     byID[host.id] = host
                     updatedHosts += 1
                 } else {
@@ -190,6 +216,7 @@ enum HostExportImport {
         return ImportOutcome(
             hosts: mergedHosts,
             commands: existingCommandOrder + newCommands,
+            folders: mergedFolders,
             updatedHosts: updatedHosts,
             addedHosts: addedHosts,
             updatedCommands: updatedCommands
@@ -201,6 +228,15 @@ enum HostExportImport {
         guard bundle.hosts.count <= maxImportedItems,
               bundle.commands.count <= maxImportedItems else {
             throw ImportError.tooManyItems
+        }
+        let folders = bundle.folders ?? []
+        guard folders.count <= maxImportedFolders else { throw ImportError.tooManyItems }
+        var folderIDs = Set<UUID>()
+        for folder in folders {
+            guard folderIDs.insert(folder.id).inserted else { throw ImportError.duplicateID }
+            guard HostFolderStore.sanitizedName(folder.name) != nil else {
+                throw ImportError.invalidFolder(folder.name)
+            }
         }
         var hostIDs = Set<UUID>()
         for host in bundle.hosts {
@@ -253,13 +289,15 @@ enum HostExportImport {
 
 // MARK: - Wireframe
 
-/// The backing storage model of a `.harbor` export file: hosts + commands in one
-/// versioned envelope. Kept as a private struct (no external dependence). The
-/// version field enables future migration.
+/// The backing storage model of a `.harbor` export file: hosts + folders +
+/// commands in one versioned envelope. Kept as a private struct (no external
+/// dependence). The version field enables future migration. `folders` is
+/// optional so backups written before folders existed still decode.
 private struct HostBundle: Codable, Sendable {
     var version: Int = 1
     var hosts: [SSHHost]
     var commands: [QuickCommand]
+    var folders: [HostFolder]?
 }
 
 private enum ImportError: Error, Sendable {
@@ -268,6 +306,7 @@ private enum ImportError: Error, Sendable {
     case unsupportedVersion(Int)
     case duplicateID
     case invalidHost(String)
+    case invalidFolder(String)
 
     @MainActor var message: String {
         switch self {
@@ -281,6 +320,8 @@ private enum ImportError: Error, Sendable {
             return L("导入文件包含重复 ID，已拒绝导入。")
         case .invalidHost(let name):
             return L("主机“%@”包含不安全或不支持的连接参数。", name)
+        case .invalidFolder(let name):
+            return L("文件夹“%@”无效（名称为空、过长或包含非法字符）。", name)
         }
     }
 }
@@ -294,6 +335,7 @@ private enum ImportLoadResult: Sendable {
 private struct ImportOutcome: Sendable {
     var hosts: [SSHHost]
     var commands: [QuickCommand]
+    var folders: [HostFolder]
     var updatedHosts: Int
     var addedHosts: Int
     var updatedCommands: Int

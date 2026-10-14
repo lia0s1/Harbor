@@ -23,6 +23,9 @@ struct HostEditorView: View {
     // distro badge that SessionManager.recordOS persisted on connect.
     private let osID: String?
     private let osName: String?
+    // Folder assignment is managed from the sidebar (drag & drop); the form
+    // does not edit it, so the original value is carried through unchanged.
+    private let folderID: UUID?
 
     @State private var name: String
     @State private var hostname: String
@@ -37,6 +40,7 @@ struct HostEditorView: View {
     @State private var connectionProtocol: ConnectionProtocol
     @State private var rdpDomain: String
     @State private var shell: String
+    @State private var backspaceBehavior: SSHHost.BackspaceBehavior
 
     /// Snapshot of every field at init, so a pristine (untouched) form can be
     /// told apart from one the user has edited.
@@ -49,7 +53,7 @@ struct HostEditorView: View {
     @State private var setupPassword = ""
     @State private var setupStatus: SetupStatus = .idle
     @State private var isSaving = false
-    @State private var connectionTestStatus: SetupStatus = .idle
+    @StateObject private var connectionTester = ConnectionTester()
     @State private var showTOTPSetup = false
     @State private var hasTOTPSecret = false
     @State private var clearKeyHover = false
@@ -74,6 +78,7 @@ struct HostEditorView: View {
         self.hostID = host.id
         self.osID = host.osID
         self.osName = host.osName
+        self.folderID = host.folderID
         _name = State(initialValue: host.name)
         _hostname = State(initialValue: host.hostname)
         _portText = State(initialValue: host.port == SSHHost.defaultPort ? "" : String(host.port))
@@ -87,6 +92,7 @@ struct HostEditorView: View {
         _connectionProtocol = State(initialValue: host.connectionProtocol)
         _rdpDomain = State(initialValue: host.rdpDomain)
         _shell = State(initialValue: host.shell)
+        _backspaceBehavior = State(initialValue: host.backspaceBehavior)
         initialDraft = DraftSnapshot(
             name: host.name,
             hostname: host.hostname,
@@ -100,7 +106,8 @@ struct HostEditorView: View {
             forwards: host.portForwards.map(ForwardDraft.init),
             connectionProtocol: host.connectionProtocol,
             rdpDomain: host.rdpDomain,
-            shell: host.shell
+            shell: host.shell,
+            backspaceBehavior: host.backspaceBehavior
         )
     }
 
@@ -117,6 +124,9 @@ struct HostEditorView: View {
                 identitySection
                 organizationSection
                 forwardsSection
+                if connectionProtocol == .ssh {
+                    HostTerminalBehaviorSection(behavior: $backspaceBehavior)
+                }
                 advancedSection
             }
             .formStyle(.grouped)
@@ -125,8 +135,12 @@ struct HostEditorView: View {
             footer
         }
         .frame(minWidth: 520, idealWidth: 520, maxWidth: 640, minHeight: 600, idealHeight: 600, maxHeight: 600)
-        .onChange(of: hostname) { _, _ in hostnameWasEdited = true }
+        .onChange(of: hostname) { _, _ in
+            hostnameWasEdited = true
+            connectionTester.reset()
+        }
         .onAppear { hasTOTPSecret = TOTPStore.hasSecret(for: hostID) }
+        .onDisappear { connectionTester.cancel() }
         .sheet(isPresented: $showTOTPSetup) {
             TOTPSetupView(hostID: hostID, hostName: totpHostName)
                 .onDisappear { hasTOTPSecret = TOTPStore.hasSecret(for: hostID) }
@@ -150,6 +164,7 @@ struct HostEditorView: View {
                     .tag(ConnectionProtocol.rdp)
             }
             .onChange(of: connectionProtocol) { _, proto in
+                connectionTester.reset()
                 // Auto-adjust default port when switching protocols
                 let currentPort = Int(portText.trimmingCharacters(in: .whitespaces))
                 switch proto {
@@ -170,9 +185,12 @@ struct HostEditorView: View {
                 text: $portText,
                 prompt: Text(verbatim: connectionProtocol == .rdp ? "3389" : "22")
             )
+            .onChange(of: portText) { _, _ in connectionTester.reset() }
             TextField(L("用户名"), text: $username, prompt: Text(verbatim: L("可选")))
+                .onChange(of: username) { _, _ in connectionTester.reset() }
             if connectionProtocol == .ssh {
                 TextField(L("跳板机（ProxyJump）"), text: $proxyJump, prompt: Text(verbatim: L("可选，如 admin@bastion:2222")))
+                    .onChange(of: proxyJump) { _, _ in connectionTester.reset() }
             }
             if connectionProtocol == .rdp {
                 TextField(L("域"), text: $rdpDomain, prompt: Text(verbatim: L("CORP（可选）")))
@@ -183,9 +201,7 @@ struct HostEditorView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if connectionProtocol == .ssh {
-                testConnectionControls
-            }
+            testConnectionControls
         }
     }
 
@@ -211,62 +227,108 @@ struct HostEditorView: View {
         return exists ? L("已存在相同主机名和端口的条目，保存将产生重复主机。") : nil
     }
 
+    /// Graded probe: DNS → TCP(+SSH banner) → BatchMode auth. RDP hosts run
+    /// the first two stages only. Results render inline, one row per stage.
     @ViewBuilder
     private var testConnectionControls: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: DS.Space.s) {
                 Button(L("测试连接")) { runConnectionTest() }
                     .disabled(!canTestConnection)
-                if case .running = connectionTestStatus {
+                if connectionTester.isRunning {
                     ProgressView().controlSize(.small).scaleEffect(0.8)
+                    Button(L("取消")) { connectionTester.cancel() }
+                        .font(.caption)
                 }
             }
-            switch connectionTestStatus {
-            case .idle, .running:
-                EmptyView()
-            case .success(let message):
-                Label(message, systemImage: "checkmark.circle.fill")
+            ForEach(connectionTester.stages) { stage in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    stageIcon(stage.state)
+                        .frame(width: 12, alignment: .center)
+                    Text(stageTitle(stage.kind))
+                        .font(.caption.weight(.medium))
+                    if !stage.detail.isEmpty {
+                        Text(stage.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            if connectionProtocol == .ssh, connectionTester.stages.isEmpty {
+                Text(L("依次检查 DNS 解析、TCP 连接与 SSH 标识、免密认证；全程不会弹出密码输入。"))
                     .font(.caption)
-                    .foregroundStyle(.green)
-            case .failure(let message):
-                Label(message, systemImage: "xmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
-    private var canTestConnection: Bool {
-        if case .running = connectionTestStatus { return false }
-        return connectionProtocol == .ssh
-            && !hostname.trimmingCharacters(in: .whitespaces).isEmpty
-            && passwordlessPort != nil
+    @ViewBuilder
+    private func stageIcon(_ state: ConnectionTester.StageState) -> some View {
+        switch state {
+        case .pending:
+            Image(systemName: "circle")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+        case .running:
+            ProgressView().controlSize(.mini).scaleEffect(0.7)
+        case .ok:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.red)
+        case .skipped:
+            Image(systemName: "minus.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
-    /// Key-only reachability probe (BatchMode: passwords are never sent).
-    private func runConnectionTest() {
-        guard canTestConnection, let port = passwordlessPort else { return }
-        let trimmedHost = hostname.trimmingCharacters(in: .whitespaces)
-        var argv = ["/usr/bin/ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-p", String(port)]
-        let identity = identityFile.trimmingCharacters(in: .whitespaces)
-        if !identity.isEmpty { argv += ["-i", identity] }
-        let user = username.trimmingCharacters(in: .whitespaces)
-        argv += [user.isEmpty ? trimmedHost : "\(user)@\(trimmedHost)", "true"]
-        connectionTestStatus = .running
-        Task {
-            let output = await AuxProcess.run(argv: argv, timeout: 10)
-            if output.exitCode == 0 {
-                connectionTestStatus = .success(L("连接成功（密钥认证可用）"))
-            } else {
-                let message = output.stderrText
-                    .split(separator: "\n")
-                    .map(String.init)
-                    .last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
-                connectionTestStatus = .failure(
-                    message ?? L("连接失败（退出码 %lld）", output.exitCode))
-            }
+    private func stageTitle(_ kind: ConnectionTester.StageKind) -> String {
+        switch kind {
+        case .resolve: return L("DNS 解析")
+        case .connect: return connectionProtocol == .ssh ? L("TCP 连接与 SSH 标识") : L("TCP 连接")
+        case .auth: return L("免密认证")
         }
+    }
+
+    private var canTestConnection: Bool {
+        if connectionTester.isRunning { return false }
+        return (connectionProtocol == .ssh || connectionProtocol == .rdp)
+            && !hostname.trimmingCharacters(in: .whitespaces).isEmpty
+            && editorPort != nil
+    }
+
+    /// Port as the tester should dial it: explicit value, else the protocol
+    /// default (22 / 3389).
+    private var editorPort: Int? {
+        let value = portText.trimmingCharacters(in: .whitespaces)
+        if value.isEmpty {
+            return connectionProtocol == .rdp ? SSHHost.defaultRDPPort : SSHHost.defaultPort
+        }
+        guard let port = Int(value), (1...65535).contains(port) else { return nil }
+        return port
+    }
+
+    /// Builds a probe-only host from the connection fields (no forwards, no
+    /// custom shell — ConnectionTester strips those for the auth stage).
+    private func runConnectionTest() {
+        guard canTestConnection, let port = editorPort else { return }
+        let identity = identityFile.trimmingCharacters(in: .whitespaces)
+        let host = SSHHost(
+            hostname: hostname.trimmingCharacters(in: .whitespaces),
+            port: port,
+            username: username.trimmingCharacters(in: .whitespaces),
+            identityFile: identity.isEmpty ? nil : identity,
+            proxyJump: proxyJump.trimmingCharacters(in: .whitespaces),
+            extraArgs: extraArgsText.split(whereSeparator: \.isWhitespace).map(String.init),
+            connectionProtocol: connectionProtocol
+        )
+        connectionTester.start(host: host)
     }
 
     @ViewBuilder
@@ -280,6 +342,7 @@ struct HostEditorView: View {
                         prompt: Text(verbatim: L("默认密钥 / ssh-agent"))
                     )
                     .labelsHidden()
+                    .onChange(of: identityFile) { _, _ in connectionTester.reset() }
                     if !identityFile.isEmpty {
                         Button {
                             identityFile = ""
@@ -541,7 +604,9 @@ struct HostEditorView: View {
             osName: osName,
             connectionProtocol: connectionProtocol,
             rdpDomain: rdpDomain.trimmingCharacters(in: .whitespaces),
-            shell: shell
+            shell: shell,
+            folderID: folderID,
+            backspaceBehavior: backspaceBehavior
         )
 
         // For SSH hosts, run the same injection-safety check used at connect time.
@@ -578,6 +643,7 @@ struct HostEditorView: View {
         var connectionProtocol: ConnectionProtocol
         var rdpDomain: String
         var shell: String
+        var backspaceBehavior: SSHHost.BackspaceBehavior
     }
 
     private var isPristine: Bool {
@@ -594,7 +660,8 @@ struct HostEditorView: View {
             forwards: forwards,
             connectionProtocol: connectionProtocol,
             rdpDomain: rdpDomain,
-            shell: shell
+            shell: shell,
+            backspaceBehavior: backspaceBehavior
         )
     }
 

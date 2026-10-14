@@ -37,6 +37,21 @@ public struct SSHHost: Codable, Identifiable, Hashable, Sendable {
     /// Shell to launch after SSH login, e.g. "powershell.exe" or "cmd.exe".
     /// Empty = server default. Forces PTY allocation (`-t`) automatically.
     public var shell: String
+    /// Folder this host belongs to in the sidebar tree. nil = unfiled (root).
+    /// The folder records themselves live in the host store, keyed by this id.
+    public var folderID: UUID?
+    /// What the Backspace/Delete keys send on the wire, per host.
+    /// `.auto` keeps the terminal default; the others fix hosts where
+    /// backspace deletes wrong or prints `^H`/`^?`.
+    public var backspaceBehavior: BackspaceBehavior
+
+    /// Byte sequence sent for the Backspace key (and Delete where applicable).
+    public enum BackspaceBehavior: String, Codable, Sendable, CaseIterable {
+        case auto            // terminal default
+        case asciiBackspace  // BS  = 0x08
+        case asciiDelete     // DEL = 0x7f
+        case vt220Delete     // DEL = ESC [ 3 ~
+    }
 
     public static let defaultPort = 22
     public static let defaultRDPPort = 3389
@@ -57,7 +72,9 @@ public struct SSHHost: Codable, Identifiable, Hashable, Sendable {
         osName: String? = nil,
         connectionProtocol: ConnectionProtocol = .ssh,
         rdpDomain: String = "",
-        shell: String = ""
+        shell: String = "",
+        folderID: UUID? = nil,
+        backspaceBehavior: BackspaceBehavior = .auto
     ) {
         self.id = id
         self.name = name
@@ -75,6 +92,8 @@ public struct SSHHost: Codable, Identifiable, Hashable, Sendable {
         self.connectionProtocol = connectionProtocol
         self.rdpDomain = rdpDomain
         self.shell = shell
+        self.folderID = folderID
+        self.backspaceBehavior = backspaceBehavior
     }
 
     /// Creates a virtual host representing a local shell tab.
@@ -117,5 +136,7 @@ public struct SSHHost: Codable, Identifiable, Hashable, Sendable {
         connectionProtocol = (try? c.decodeIfPresent(ConnectionProtocol.self, forKey: .connectionProtocol)) ?? .ssh
         rdpDomain = (try? c.decodeIfPresent(String.self, forKey: .rdpDomain)) ?? ""
         shell = (try? c.decodeIfPresent(String.self, forKey: .shell)) ?? ""
+        folderID = try? c.decodeIfPresent(UUID.self, forKey: .folderID)
+        backspaceBehavior = (try? c.decodeIfPresent(BackspaceBehavior.self, forKey: .backspaceBehavior)) ?? .auto
     }
 }

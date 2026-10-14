@@ -62,6 +62,26 @@ final class HostStore: JSONFileStore<SSHHost> {
         replaceAll(with: updated)
     }
 
+    // MARK: - Folders
+
+    /// Moves a host into a folder (nil = back to the unfiled root).
+    func assign(_ hostID: UUID, toFolder folderID: UUID?) {
+        guard var host = host(withID: hostID), host.folderID != folderID else { return }
+        host.folderID = folderID
+        update(host)
+    }
+
+    /// Clears a deleted folder's reference from every host so they fall back
+    /// to the root. Called by the sidebar when the folder itself is deleted.
+    func clearFolderReferences(_ folderID: UUID) {
+        guard items.contains(where: { $0.folderID == folderID }) else { return }
+        replaceAll(with: items.map { host in
+            var host = host
+            if host.folderID == folderID { host.folderID = nil }
+            return host
+        })
+    }
+
     /// Merges imported hosts (e.g. from ~/.ssh/config). Skips candidates whose
     /// display name collides with an existing host (case-insensitive) and
     /// candidates that fail SSHCommandBuilder's injection-safety validation.
