@@ -258,6 +258,9 @@ struct ProcessInspectorView: View {
                     infoRow(L("常驻内存"), MonitorFormat.sizeShort(kb: d.rssKB))
                     infoRow(L("虚拟内存"), MonitorFormat.sizeShort(kb: d.vszKB))
                     infoRow(L("线程数"), "\(d.threads)")
+                    // On-demand fd/socket count (`ls -l /proc/<pid>/fd`) — a
+                    // GridRow-rendering view, so it stays inside this Grid.
+                    ProcessFDGridRow(monitor: monitor, pid: process.pid)
                     infoRow(L("优先级"), L("%lld（nice %lld）", d.priority, d.nice))
                     if d.elapsedSeconds > 0 {
                         infoRow(L("已运行"), MonitorFormat.uptime(seconds: Double(d.elapsedSeconds), locale: locale))

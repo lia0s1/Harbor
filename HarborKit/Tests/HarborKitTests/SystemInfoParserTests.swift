@@ -236,4 +236,30 @@ final class SystemInfoParserTests: XCTestCase {
         XCTAssertEqual(info.netRxTotalBytes, 1500)
         XCTAssertEqual(info.netTxTotalBytes, 2700)
     }
+
+    // MARK: - Persistence (stale-while-revalidate disk cache)
+
+    /// The app layer persists the last good probe per host so re-opening
+    /// 系统信息 is instant; a broken Codable conformance would silently drop
+    /// fields between sessions.
+    func testSystemInfoCodableRoundTrip() throws {
+        let info = SystemInfoParser.parse(ubuntuPayload)
+        let data = try JSONEncoder().encode(info)
+        let decoded = try JSONDecoder().decode(SystemInfo.self, from: data)
+        XCTAssertEqual(decoded, info)
+    }
+
+    // MARK: - Remote script resilience
+
+    /// A stale NFS mount hangs a bare `df` in uninterruptible statfs and used
+    /// to eat the whole probe timeout. The script must cap df with `timeout`
+    /// and carry a local-filesystems-only fallback so one dead mount can
+    /// never stall the report.
+    func testRemoteScriptGuardsDFAgainstStaleMounts() {
+        XCTAssertTrue(SystemInfoParser.remoteScript.contains("timeout -k 1 4 df -kP"))
+        XCTAssertTrue(SystemInfoParser.remoteScript.contains("df -kPl"))
+        // Every section still tolerates a missing command: nothing in the
+        // script may abort the pipeline.
+        XCTAssertFalse(SystemInfoParser.remoteScript.contains("set -e"))
+    }
 }

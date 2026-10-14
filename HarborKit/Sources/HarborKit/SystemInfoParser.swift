@@ -4,8 +4,9 @@ import Foundation
 
 /// One network interface in the System Info report: a name plus all of its
 /// addresses (IPv4 and IPv6). FinalShell's 系统信息 lists every interface with
-/// its addresses; we mirror that.
-public struct SystemInterface: Equatable, Sendable {
+/// its addresses; we mirror that. Codable so the app layer can persist the
+/// report (stale-while-revalidate disk cache).
+public struct SystemInterface: Equatable, Sendable, Codable {
     public let name: String
     public let addresses: [String]
 
@@ -18,7 +19,7 @@ public struct SystemInterface: Equatable, Sendable {
 /// One filesystem row for the System Info report (`df -kP`, 1024-blocks). The
 /// monitor panel already has its own lean `DiskUsage`; System Info keeps the
 /// device name too, so the detailed report can show "/dev/vda1 → /".
-public struct SystemFilesystem: Equatable, Sendable {
+public struct SystemFilesystem: Equatable, Sendable, Codable {
     public let device: String
     public let mount: String
     public let totalKB: UInt64
@@ -41,8 +42,9 @@ public struct SystemFilesystem: Equatable, Sendable {
 ///
 /// Pure value type produced by `SystemInfoParser` from the multi-section
 /// payload of one remote probe script. Missing sections degrade to empty
-/// fields rather than failing the whole report.
-public struct SystemInfo: Equatable, Sendable {
+/// fields rather than failing the whole report. Codable so the app layer can
+/// persist the last good probe per host (stale-while-revalidate).
+public struct SystemInfo: Equatable, Sendable, Codable {
     /// Raw `uname -s` ("Linux", "Darwin", …); the caller gates richer fields.
     public var os: String = ""
     /// `/etc/os-release` PRETTY_NAME ("Ubuntu 22.04.4 LTS"); empty when absent.
@@ -104,7 +106,15 @@ public enum SystemInfoParser {
         // `ip -o addr` is the clean source; fall back to nothing on hosts
         // without iproute2 (the parser then yields no interfaces, handled).
         "(ip -o addr show 2>/dev/null || true)",
-        "(df -kP 2>/dev/null || true)",
+        // `df` statfs's EVERY mount; one stale NFS mount hangs it in
+        // uninterruptible sleep and would otherwise eat the whole probe
+        // timeout. Cap it with `timeout` (4s, KILL 1s later) where coreutils/
+        // busybox provide it, then degrade to local filesystems only
+        // (`-l` never touches network mounts), then to a bare df as the
+        // last resort. A killed df makes `timeout` exit non-zero, so the
+        // chain still lands on the local-only fallback with partial data
+        // instead of hanging the report.
+        "(timeout -k 1 4 df -kP 2>/dev/null || df -kPl 2>/dev/null || df -kP 2>/dev/null || true)",
         "(cat /proc/net/dev 2>/dev/null || true)",
     ].joined(separator: "; echo \(sectionSeparator); ")
 

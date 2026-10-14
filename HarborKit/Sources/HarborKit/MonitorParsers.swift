@@ -245,7 +245,10 @@ public enum MonitorParsers {
         "cat /proc/stat",
         "cat /proc/meminfo",
         "cat /proc/net/dev",
-        "df -kPT 2>/dev/null || df -kP",
+        // Guard against stale NFS mounts: a dead mount wedges df in D state
+        // and would stall the whole 2s poll until the aux timeout. Cap at 4s,
+        // then degrade to local filesystems only (-l skips network mounts).
+        "(timeout -k 1 4 df -kPT 2>/dev/null || df -kPTl 2>/dev/null || df -kPT 2>/dev/null || df -kP 2>/dev/null || true)",
         "LC_ALL=C ps -eo pid,user:16,pcpu,rss,comm --sort=-pcpu | head -16",
         "cat /proc/diskstats",
     ].joined(separator: "; echo \(sectionSeparator); ")

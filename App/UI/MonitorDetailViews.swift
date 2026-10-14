@@ -6,6 +6,7 @@ import HarborKit
 /// 磁盘 card in `MonitorPanel` presents `MonitorDetailSheet` for the matching kind.
 enum MonitorDetailKind: String, Identifiable {
     case cpu, memory, process, network, ports, disk, forwarding
+    case tcpQuality, connections, tools
     var id: String { rawValue }
 }
 
@@ -32,6 +33,10 @@ struct MonitorDetailSheet: View {
     @ObservedObject var monitor: MonitorService
     let ping: PingService
     var forwarding: ForwardingService? = nil
+    /// For .tools: the session's TCP ping / traceroute probers. Nil only for
+    /// an unknown session — the sheet shows a placeholder instead then.
+    var tcpPing: TcpPingService? = nil
+    var traceroute: TracerouteService? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -84,6 +89,18 @@ struct MonitorDetailSheet: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
+        case .tcpQuality:
+            TCPQualityDetailView(monitor: monitor)
+        case .connections:
+            ConnectionsDetailView(monitor: monitor)
+        case .tools:
+            if let tcpPing, let traceroute {
+                NetworkToolsDetailView(tcpPing: tcpPing, traceroute: traceroute)
+            } else {
+                Text(L("暂无网络工具数据"))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 
@@ -96,6 +113,9 @@ struct MonitorDetailSheet: View {
         case .ports: return L("监听端口")
         case .disk: return L("磁盘详情")
         case .forwarding: return L("端口转发")
+        case .tcpQuality: return L("TCP 连接质量")
+        case .connections: return L("连接表")
+        case .tools: return L("网络工具")
         }
     }
 
@@ -108,6 +128,9 @@ struct MonitorDetailSheet: View {
         case .ports: return "network"
         case .disk: return "internaldrive"
         case .forwarding: return "arrow.triangle.swap"
+        case .tcpQuality: return "waveform.path.ecg"
+        case .connections: return "list.bullet.indent"
+        case .tools: return "wrench.and.screwdriver"
         }
     }
 }

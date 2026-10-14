@@ -79,7 +79,8 @@ final class MonitorService: ObservableObject {
     /// copy and assigns it back to `frame` once (guarded by Equatable).
     struct Frame: Equatable {
         var snapshot: SystemSnapshot?
-        /// Derived series, capped at `maxSamples` (~3 minutes at 2s ticks).
+        /// Derived series, capped at `maxSamples` (~4 minutes at 2s ticks —
+        /// sized to the bandwidth charts' window).
         var cpuSeries: [Double] = []
         var memSeries: [Double] = []
         var swapSeries: [Double] = []
@@ -153,7 +154,7 @@ final class MonitorService: ObservableObject {
     private var previousNet: (date: Date, counters: [String: (rx: UInt64, tx: UInt64)])?
     private var previousDisk: (date: Date, counters: [String: (read: UInt64, write: UInt64)])?
 
-    private static let maxSamples = 90
+    private static let maxSamples = 120
     private static let initialDelay: TimeInterval = 0.4
     private static let sampleInterval: TimeInterval = 2
     private static let retryInterval: TimeInterval = 15
@@ -417,6 +418,64 @@ final class MonitorService: ObservableObject {
         // listening" and parses to [].
         guard !result.timedOut, result.exitCode == 0 else { return nil }
         return ListeningPortsParser.parse(result.stdoutText)
+    }
+
+    // MARK: - TCP connection quality
+
+    /// FinalShell's double-sample `ss -ni`, but over the aux channel instead of
+    /// its tar.gz+SFTP dance: both samples AND the 3s sleep run remotely inside
+    /// one multiplexed command, so the whole measurement is a single round-trip
+    /// separated by `@@HARBOR@@`. Diffed for per-connection retransmission
+    /// deltas and an aggregate retransmission rate. Returns nil only when the
+    /// command itself failed (`ss` absent → empty stdout, socket dead, timeout);
+    /// a live host with zero TCP connections yields a valid empty report (the
+    /// `ss` header line still prints, so the payload is non-empty).
+    func fetchTCPQuality() async -> TCPQualityReport? {
+        let script = SSInfoParser.doubleSampleScript(separator: MonitorParsers.sectionSeparator)
+        // The remote `sleep 3` sits inside the payload window; the usual 12s
+        // command timeout still covers it with margin.
+        let result = await exec.run(script, timeout: Self.commandTimeout)
+        if Task.isCancelled { return nil }
+        guard !result.timedOut, result.exitCode == 0 else { return nil }
+        let payload = result.stdoutText
+        guard !payload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let sections = MonitorParsers.splitSections(payload)
+        guard sections.count >= 2 else { return nil }
+        let first = SSInfoParser.parse(sections[0])
+        let second = SSInfoParser.parse(sections[1])
+        return SSInfoParser.qualityReport(
+            previous: first,
+            current: second,
+            intervalSeconds: SSInfoParser.sampleIntervalSeconds
+        )
+    }
+
+    // MARK: - Full connection table
+
+    /// On-demand `ss -tupnH`: every tcp/udp socket with its state, endpoints
+    /// and (root permitting) owning process. Kept off the 2s loop like the
+    /// listening-ports probe. nil = couldn't ask (ss missing / socket dead);
+    /// [] = asked, nothing there.
+    func fetchConnections() async -> [ConnectionEntry]? {
+        let result = await exec.run(SSConnectionsParser.command, timeout: Self.commandTimeout)
+        if Task.isCancelled { return nil }
+        guard !result.timedOut, result.exitCode == 0 else { return nil }
+        return SSConnectionsParser.parse(result.stdoutText)
+    }
+
+    // MARK: - Per-process fd / socket count
+
+    /// Counts one process's open file descriptors and how many are sockets,
+    /// via `ls -l /proc/<pid>/fd` (readlink targets `socket:[inode]`). On
+    /// demand from the process inspector — never in the 2s loop. nil when the
+    /// pid is invalid, the process is gone, or /proc/<pid>/fd is unreadable
+    /// (ls exits non-zero in all three cases).
+    func fetchProcessFDs(pid: Int32) async -> ProcessFDCount? {
+        guard pid > 0 else { return nil }
+        let result = await exec.run(ProcFDParser.command(pid: Int(pid)), timeout: Self.commandTimeout)
+        if Task.isCancelled { return nil }
+        guard !result.timedOut, result.exitCode == 0 else { return nil }
+        return ProcFDParser.parse(result.stdoutText)
     }
 
     // MARK: - Derived series

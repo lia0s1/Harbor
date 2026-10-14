@@ -22,12 +22,14 @@ struct SystemInfoView: View {
             content
         }
         .frame(width: 460, height: 560)
-        // Usually a no-op: the report is PREFETCHED when the session connects
-        // (SessionManager), so opening this sheet shows the cached result
-        // instantly. Only fetch here if nothing has been loaded yet. Do NOT
-        // cancel on disappear — that would kill the background prefetch and the
-        // cached result other opens rely on; the service is cleaned up when the
-        // session closes.
+        // Usually a no-op or an instant render: the report is PREFETCHED when
+        // the session connects (SessionManager) and the last good probe is
+        // cached on disk per host, so opening this sheet shows the in-memory
+        // result or the disk snapshot (marked with its age) while a fresh
+        // probe runs in the background. Only fetch here if nothing has been
+        // loaded yet. Do NOT cancel on disappear — that would kill the
+        // background prefetch and the cached result other opens rely on; the
+        // service is cleaned up when the session closes.
         .onAppear { service.fetchIfNeeded() }
     }
 
@@ -61,7 +63,7 @@ struct SystemInfoView: View {
                 .buttonStyle(.glass)
                 .controlSize(.regular)
                 .help(L("刷新"))
-                .disabled(service.state == .loading)
+                .disabled(service.isRefreshing)
             }
             Button(L("完成")) { dismiss() }
                 .buttonStyle(.glassProminent)
@@ -71,11 +73,12 @@ struct SystemInfoView: View {
     }
 
     /// The report can be refetched once it is in a terminal state (loaded /
-    /// unsupported / failed); hide the refresh control while it is loading.
+    /// unsupported / failed) or while showing a cached snapshot; hide the
+    /// refresh control only during the first-ever contentless load.
     private var isRefreshable: Bool {
         switch service.state {
         case .idle, .loading: return false
-        case .loaded, .unsupported, .failed: return true
+        case .cached, .loaded, .unsupported, .failed: return true
         }
     }
 
@@ -98,8 +101,15 @@ struct SystemInfoView: View {
                 actionTitle: L("重试"),
                 action: { service.fetch() }
             )
-        case .loaded(let info):
-            SystemInfoReport(info: info)
+        // cached/loaded share ONE branch on purpose: same view identity, so
+        // a background refresh landing (cached → loaded) swaps the banner for
+        // fresh values in place instead of resetting the user's scroll.
+        case .cached(let info, let fetchedAt), .loaded(let info, let fetchedAt):
+            SystemInfoReport(
+                info: info, fetchedAt: fetchedAt,
+                isSnapshot: service.state.isSnapshot,
+                isRefreshing: service.isRefreshing
+            )
         }
     }
 }
@@ -108,12 +118,18 @@ struct SystemInfoView: View {
 
 private struct SystemInfoReport: View {
     let info: SystemInfo
+    let fetchedAt: Date
+    /// True while rendering the on-disk snapshot: drifting fields (运行时间,
+    /// memory, disk) are from the snapshot moment and marked accordingly.
+    let isSnapshot: Bool
+    let isRefreshing: Bool
     @AppStorage(ServerPrivacy.maskIPKey) private var maskIP = false
     @Environment(\.locale) private var locale
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Space.m) {
+                if isSnapshot { snapshotBanner }
                 systemSection
                 cpuSection
                 memorySection
@@ -122,6 +138,38 @@ private struct SystemInfoReport: View {
             }
             .padding(DS.Space.m)
         }
+    }
+
+    /// "上次更新：3 分钟前 · 正在刷新…" — marks everything below as a snapshot
+    /// so drifting fields are not mistaken for live values.
+    private var snapshotBanner: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 10, weight: .semibold))
+            Text(snapshotCaption)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if isRefreshing {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, DS.Space.m - 2)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .statCard()
+    }
+
+    private var snapshotCaption: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        formatter.locale = locale
+        let age = formatter.localizedString(for: fetchedAt, relativeTo: Date())
+        let base = L("上次更新：%@", age)
+        return isRefreshing ? "\(base) · \(L("正在刷新…"))" : base
     }
 
     // MARK: 系统
@@ -134,7 +182,14 @@ private struct SystemInfoReport: View {
             SystemInfoRow(label: L("内核"), value: info.kernel.isEmpty ? "—" : info.kernel)
             SystemInfoRow(label: L("架构"), value: info.arch.isEmpty ? "—" : info.arch)
             SystemInfoRow(label: L("主机名"), value: info.hostname.isEmpty ? "—" : ServerPrivacy.mask(info.hostname, when: maskIP))
-            SystemInfoRow(label: L("运行时间"), value: MonitorFormat.uptime(seconds: info.uptimeSeconds, locale: locale))
+            // A snapshot's uptime is the value AT the snapshot moment — mark
+            // it so it is not read as live; the background refresh replaces
+            // it with the fresh value within seconds.
+            SystemInfoRow(
+                label: L("运行时间"),
+                value: MonitorFormat.uptime(seconds: info.uptimeSeconds, locale: locale)
+                    + (isSnapshot ? L("（快照）") : "")
+            )
         }
     }
 

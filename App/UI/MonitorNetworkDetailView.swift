@@ -13,7 +13,7 @@ struct NetworkDetailView: View {
         if let snap = monitor.snapshot, !snap.interfaces.isEmpty {
             VStack(alignment: .leading, spacing: DS.Space.l) {
                 if let selected = monitor.selectedInterface {
-                    DetailSection(selected) { selectedSection(selected, snap) }
+                    DetailSection(L("带宽曲线")) { selectedSection(selected, snap) }
                 }
                 DetailSection(L("所有网卡")) { interfaceList(snap) }
             }
@@ -28,19 +28,36 @@ struct NetworkDetailView: View {
         let counter = snap.interfaces.first { $0.name == name }
         return VStack(alignment: .leading, spacing: DS.Space.s) {
             HStack(spacing: DS.Space.m) {
-                speedLabel("arrow.up", DS.Colors.netUpload, tx.last ?? 0)
-                speedLabel("arrow.down", DS.Colors.netDownload, rx.last ?? 0)
+                speedLabel("arrow.up", NetGraphPalette.upload, tx.last ?? 0)
+                speedLabel("arrow.down", NetGraphPalette.download, rx.last ?? 0)
                 Spacer()
+                // Switch the charted NIC without leaving the detail sheet.
+                if monitor.interfaceNames.count > 1 {
+                    Picker(L("网卡"), selection: $monitor.selectedInterface) {
+                        ForEach(monitor.interfaceNames, id: \.self) { iface in
+                            Text(iface).tag(Optional(iface))
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .fixedSize()
+                } else {
+                    Text(name)
+                        .font(.system(size: nameFontSize, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
             }
             if rx.isEmpty, tx.isEmpty {
                 Text(L("正在采集…")).font(.caption).foregroundStyle(.tertiary)
             } else {
-                NetworkSparkline(rx: rx, tx: tx, height: 64)
+                // Full 4-minute window (the series ring's capacity), tall chart.
+                NetworkSparkline(rx: rx, tx: tx, height: 132)
             }
             if let c = counter {
                 Divider()
-                DetailStatRow(L("累计接收"), MonitorFormat.sizeShort(bytes: Double(c.rxBytes)), swatch: DS.Colors.netDownload)
-                DetailStatRow(L("累计发送"), MonitorFormat.sizeShort(bytes: Double(c.txBytes)), swatch: DS.Colors.netUpload)
+                DetailStatRow(L("累计接收"), MonitorFormat.sizeShort(bytes: Double(c.rxBytes)), swatch: NetGraphPalette.download)
+                DetailStatRow(L("累计发送"), MonitorFormat.sizeShort(bytes: Double(c.txBytes)), swatch: NetGraphPalette.upload)
                 DetailStatRow(L("数据包 收/发"), "\(c.rxPackets) / \(c.txPackets)")
                 if c.rxErrors + c.txErrors + c.rxDrops + c.txDrops > 0 {
                     DetailStatRow(

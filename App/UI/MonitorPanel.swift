@@ -107,7 +107,9 @@ private struct MonitorPanelContent: View {
                     kind: kind,
                     monitor: monitor,
                     ping: ping,
-                    forwarding: forwarding
+                    forwarding: forwarding,
+                    tcpPing: sessionManager.tcpPing(for: session),
+                    traceroute: sessionManager.traceroute(for: session)
                 )
             }
         }
@@ -330,6 +332,29 @@ private struct MonitorPanelContent: View {
             .equatable()
             PortsCard(onTap: { activeSheet = .detail(.ports) })
                 .equatable()
+            // On-demand deep-dives next to 端口: TCP quality (double-sample
+            // ss -ni), the full connection table, and the local network tools.
+            StaticEntryCard(
+                title: L("TCP 连接质量"),
+                symbol: "waveform.path.ecg",
+                caption: L("测量 RTT / 重传率"),
+                onTap: { activeSheet = .detail(.tcpQuality) }
+            )
+            .equatable()
+            StaticEntryCard(
+                title: L("连接表"),
+                symbol: "list.bullet.indent",
+                caption: L("查看全量连接表 · 按状态与远端聚合"),
+                onTap: { activeSheet = .detail(.connections) }
+            )
+            .equatable()
+            StaticEntryCard(
+                title: L("网络工具"),
+                symbol: "wrench.and.screwdriver",
+                caption: L("TCP ping · 路由追踪"),
+                onTap: { activeSheet = .detail(.tools) }
+            )
+            .equatable()
             // Live port-forward toggles — only shown when forwards are
             // defined on the host, sitting between 端口 and 网络 as specified.
             if let forwarding = forwarding {
@@ -777,6 +802,29 @@ private struct PortsCard: View, @MainActor Equatable {
     }
 }
 
+/// Static rail card that only opens a detail sheet (TCP 连接质量 / 连接表 /
+/// 网络工具). Same always-equal shape as PortsCard: its content never depends
+/// on live data, so a 2s tick must not re-render it.
+private struct StaticEntryCard: View, @MainActor Equatable {
+    let title: String
+    let symbol: String
+    let caption: String
+    let onTap: () -> Void
+
+    static func == (a: StaticEntryCard, b: StaticEntryCard) -> Bool {
+        a.title == b.title && a.symbol == b.symbol && a.caption == b.caption
+    }
+
+    var body: some View {
+        MonitorCard(title, symbol: symbol, onTap: onTap) {
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 /// Live port-forward summary: shown between 端口 and 网络 when the host defines at
 /// least one forward rule. Tapping opens the forwarding detail sheet with
 /// per-forward enable/disable toggles.
@@ -833,8 +881,8 @@ private struct NetworkCard: View, @MainActor Equatable {
                         .foregroundStyle(.tertiary)
                 } else {
                     HStack(spacing: DS.Space.m) {
-                        SpeedLabel(arrow: "arrow.up", color: DS.Colors.netUpload, value: tx.last ?? 0)
-                        SpeedLabel(arrow: "arrow.down", color: DS.Colors.netDownload, value: rx.last ?? 0)
+                        SpeedLabel(arrow: "arrow.up", color: NetGraphPalette.upload, value: tx.last ?? 0)
+                        SpeedLabel(arrow: "arrow.down", color: NetGraphPalette.download, value: rx.last ?? 0)
                         Spacer(minLength: 0)
                     }
                     NetworkSparkline(rx: rx, tx: tx)
@@ -900,8 +948,8 @@ private struct ActiveInterfacesCard: View, @MainActor Equatable {
                 .truncationMode(.middle)
                 .help(row.name)
             Spacer(minLength: DS.Space.s)
-            SpeedLabel(arrow: "arrow.down", color: DS.Colors.netDownload, value: row.rx)
-            SpeedLabel(arrow: "arrow.up", color: DS.Colors.netUpload, value: row.tx)
+            SpeedLabel(arrow: "arrow.down", color: NetGraphPalette.download, value: row.rx)
+            SpeedLabel(arrow: "arrow.up", color: NetGraphPalette.upload, value: row.tx)
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
@@ -1473,60 +1521,151 @@ private struct CopyButton: View {
 /// Samples shown by the sparklines (~2 minutes at 2s monitor ticks).
 private let sparklineWindow = 60
 
-/// Overlaid download (filled area + line) and upload (line) sparkline with
-/// three trailing adaptive K/M tick labels. Replaces the old stacked bar
-/// histogram, which packed 60 thin bars into an unreadable solid block.
+/// Samples shown by the bandwidth charts (~4 minutes at 2s ticks) — matches
+/// MonitorService's series ring (`maxSamples = 120`), so a chart always has
+/// the full buffer available instead of truncating a longer history.
+private let bandwidthChartWindow = 120
+
+/// FinalShell-style direction palette for the monitoring graphs (per the
+/// reference screenshot): upload is orange-brown, download green, latency a
+/// steel blue. Local to monitoring — the shared DS palette stays untouched.
+/// Palette lifted from FinalShell 4.6.5's graph painter (`gj`), decoded at
+/// runtime via its own string/int table: download green rgba(20,100,20,90),
+/// latency steel-blue rgba(60,130,210,80). Upload orange measured off the
+/// official screenshot (FinalShell draws the two directions as two overlaid
+/// transparent widgets). Alphas match the source: ~90/255 ≈ 0.35.
+enum NetGraphPalette {
+    static let upload = Color(red: 219.0/255, green: 133.0/255, blue: 56.0/255)
+    static let download = Color(red: 20.0/255, green: 100.0/255, blue: 20.0/255)
+    static let latency = Color(red: 60.0/255, green: 130.0/255, blue: 210.0/255)
+    // Bump from FS's 90/80 alphas: their panel is pure white, our card is
+    // theme-tinted — at 0.35 the 2px spikes washed out on Retina.
+    static let seriesAlpha = 0.5
+    static let latencyAlpha = 0.55
+}
+
+/// FinalShell-style bandwidth chart: NOT a smoothed curve — each sample is a
+/// thin vertical bar rising from the baseline, densely packed (htop / Task
+/// Manager style). Both directions are translucent bars on the same baseline
+/// (download green, upload orange-brown) so overlap blends; the left axis is
+/// two-three dotted gridlines with small adaptive K/M labels, much lighter
+/// than a numeric axis. `window` defaults to the 4-minute bandwidth buffer;
+/// the rail card and the bigger 网络详情 chart share the same rendering,
+/// only the height differs.
 struct NetworkSparkline: View {
     let rx: [Double] // download, bytes/s
     let tx: [Double] // upload, bytes/s
-    var height: CGFloat = 56
-    @ScaledMetric(relativeTo: .caption2) private var axisFontSize: CGFloat = 8.5
+    var height: CGFloat = 64
+    var window: Int = bandwidthChartWindow
 
     var body: some View {
-        let rxW = Array(rx.suffix(sparklineWindow))
-        let txW = Array(tx.suffix(sparklineWindow))
-        let count = max(rxW.count, txW.count)
-        let peak = max(1024, max(rxW.max() ?? 0, txW.max() ?? 0))
-        Chart {
-            ForEach(Array(rxW.enumerated()), id: \.offset) { index, value in
-                AreaMark(x: .value("时间", index), y: .value("下载", value), series: .value("s", "rx"))
-                    .foregroundStyle(.linearGradient(
-                        colors: [DS.Colors.netDownload.opacity(0.30), DS.Colors.netDownload.opacity(0.03)],
-                        startPoint: .top, endPoint: .bottom
-                    ))
-                    .interpolationMethod(.monotone)
-                LineMark(x: .value("时间", index), y: .value("下载", value), series: .value("s", "rx"))
-                    .foregroundStyle(DS.Colors.netDownload)
-                    .lineStyle(StrokeStyle(lineWidth: 1.4))
-                    .interpolationMethod(.monotone)
+        SpikeGraph(
+            series: [
+                .init(values: Array(rx.suffix(window)), color: NetGraphPalette.download, alpha: NetGraphPalette.seriesAlpha),
+                .init(values: Array(tx.suffix(window)), color: NetGraphPalette.upload, alpha: NetGraphPalette.seriesAlpha),
+            ],
+            height: height,
+            labelFormat: { MonitorFormat.speedAxisLabel(bytesPerSecond: $0) }
+        )
+    }
+}
+
+/// Faithful port of FinalShell's `gj` graph painter (constants decoded at
+/// runtime from its own obfuscated table): vertical spike lines at 2px pitch,
+/// newest sample hugging the right edge, min…max normalization over the
+/// VISIBLE window (so the graph always fills its height and small wiggles
+/// stay visible), three dotted gridlines with max/mid/min labels down a 30px
+/// left gutter, and a 1px bottom+right frame.
+///
+/// Canvas, not Swift Charts: Charts' `BarMark(width: .ratio)` collapses to
+/// zero width on a continuous scale (render-verified), and the gridline/
+/// gutter layout below isn't expressible with AxisMarks anyway.
+struct SpikeGraph: View {
+    struct Series {
+        let values: [Double]      // oldest → newest
+        let color: Color
+        let alpha: Double
+    }
+
+    let series: [Series]
+    var height: CGFloat = 64
+    var labelFormat: (Double) -> String = { "\(Int($0.rounded()))" }
+
+    // FinalShell geometry: left label gutter W=30, bottom zone H=15,
+    // 2px pitch per sample, newest at width-2.
+    private let gutter: CGFloat = 30
+    private let foot: CGFloat = 15
+    private let pitch: CGFloat = 2
+    private let barWidth: CGFloat = 1.8
+
+    var body: some View {
+        Canvas { ctx, size in
+            let width = size.width, h = size.height
+            guard width > gutter + 8, h > foot + 8 else { return }
+
+            let capacity = Int((width - gutter - 2) / pitch)
+            let windows: [[Double]] = series.map { Array($0.values.suffix(capacity)) }
+            let all = windows.flatMap { $0 }
+            guard let hi = all.max(), let lo = all.min(), !all.isEmpty else {
+                drawChrome(ctx: ctx, width: width, h: h, hi: nil, lo: nil)
+                return
             }
-            ForEach(Array(txW.enumerated()), id: \.offset) { index, value in
-                LineMark(x: .value("时间", index), y: .value("上传", value), series: .value("s", "tx"))
-                    .foregroundStyle(DS.Colors.netUpload)
-                    .lineStyle(StrokeStyle(lineWidth: 1.4))
-                    .interpolationMethod(.monotone)
-            }
-        }
-        .chartXAxis(.hidden)
-        .chartXScale(domain: 0...max(1, count - 1))
-        .chartYScale(domain: 0...(peak * 1.2))
-        .chartYAxis {
-            AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
-                AxisValueLabel {
-                    if let speed = value.as(Double.self) {
-                        Text(MonitorFormat.speedAxisLabel(bytesPerSecond: speed))
-                            .font(.system(size: axisFontSize).monospacedDigit())
-                    }
+
+            drawChrome(ctx: ctx, width: width, h: h, hi: hi, lo: lo)
+
+            // Bars: newest at x = width-2, stepping left by 2px (FS R=2).
+            // Top maps to y=0, min to y=height-foot; bars run to the bottom
+            // edge, passing behind the label zone like the original.
+            let range = hi - lo
+            for (si, w) in windows.enumerated() {
+                guard !w.isEmpty else { continue }
+                var path = Path()
+                for (i, v) in w.enumerated() {
+                    let t = range > 0 ? (v - lo) / range : 0
+                    let top = (h - foot) * (1 - CGFloat(t))
+                    let x = width - 2 - CGFloat(w.count - 1 - i) * pitch
+                    path.addRect(CGRect(x: x - barWidth / 2, y: top, width: barWidth, height: h - top))
                 }
+                ctx.fill(path, with: .color(series[si].color.opacity(series[si].alpha)))
             }
         }
         .frame(height: height)
-        // Flatten the chart into one Metal layer so a 2s tick re-renders a
-        // single composited image instead of dozens of marks.
-        .drawingGroup()
-        // Decorative sparkline — the upstream speed-label Text nodes
-        // carry the accessible upload/download values for VoiceOver.
+        // Decorative sparkline — adjacent Text nodes carry the accessible values.
         .accessibilityHidden(true)
+    }
+
+    /// Dotted gridlines + max/mid/min labels + bottom/right frame.
+    private func drawChrome(ctx: GraphicsContext, width: CGFloat, h: CGFloat, hi: Double?, lo: Double?) {
+        let gridY: [CGFloat] = [1, (h - foot) / 2 + 1, h - foot - 1]
+        let dash = StrokeStyle(lineWidth: 0.5, dash: [1, 3])
+        for y in gridY {
+            var p = Path()
+            p.move(to: CGPoint(x: gutter - 5, y: y))
+            p.addLine(to: CGPoint(x: width, y: y))
+            ctx.stroke(p, with: .color(.secondary.opacity(0.35)), style: dash)
+        }
+        if let hi, let lo {
+            let mid = (hi + lo) / 2
+            // FS label placement: max pinned at y=10-ish, mid/min sit just
+            // BELOW their gridlines (gridline+4), never above — avoids the
+            // overlap that pinning mid above its line caused at 48pt height.
+            let labels: [(Double, CGFloat)] = [(hi, 8), (mid, gridY[1] + 4), (lo, gridY[2] + 4)]
+            for (value, y) in labels {
+                ctx.draw(
+                    Text(labelFormat(value))
+                        .font(.system(size: 8.5).monospacedDigit())
+                        .foregroundStyle(.tertiary),
+                    at: CGPoint(x: 3, y: y), anchor: .topLeading
+                )
+            }
+        }
+        // 1px bottom + right frame (FS: rgba(70,130,150,100) / rgb(210,225,230)).
+        var framePath = Path()
+        framePath.move(to: CGPoint(x: 0, y: h - 0.5))
+        framePath.addLine(to: CGPoint(x: width, y: h - 0.5))
+        framePath.move(to: CGPoint(x: width - 0.5, y: 0))
+        framePath.addLine(to: CGPoint(x: width - 0.5, y: h))
+        ctx.stroke(framePath, with: .color(.secondary.opacity(0.3)), lineWidth: 1)
     }
 }
 
@@ -1574,41 +1713,17 @@ private struct LatencyCardView: View {
     }
 }
 
-/// Blue round-trip-time histogram with three trailing ms tick labels.
+/// Round-trip-time pulse bars, FinalShell-style: steel-blue vertical spikes,
+/// dotted gridlines with small ms labels down the left gutter, min…max
+/// normalization over the visible window (same painter as the network graph).
 private struct LatencySparkline: View {
     let samples: [Double]
-    @ScaledMetric(relativeTo: .caption2) private var axisFontSize: CGFloat = 8.5
 
     var body: some View {
-        let window = Array(samples.suffix(sparklineWindow))
-        let peak = max(10, window.max() ?? 0)
-        Chart {
-            ForEach(Array(window.enumerated()), id: \.offset) { index, ms in
-                BarMark(
-                    x: .value("时间", index),
-                    y: .value("延迟", ms)
-                )
-                .foregroundStyle(DS.Colors.latency.opacity(0.85))
-            }
-        }
-        .chartXAxis(.hidden)
-        .chartXScale(domain: -1...sparklineWindow)
-        .chartYScale(domain: 0...(peak * 1.15))
-        .chartYAxis {
-            AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
-                AxisValueLabel {
-                    if let ms = value.as(Double.self) {
-                        Text("\(Int(ms.rounded()))")
-                            .font(.system(size: axisFontSize).monospacedDigit())
-                    }
-                }
-            }
-        }
-        .frame(height: 44)
-        // Flatten into one Metal layer — same rationale as NetworkSparkline.
-        .drawingGroup()
-        // Decorative histogram — the adjacent current/average Text nodes
-        // in LatencyCardView carry the accessible latency values.
-        .accessibilityHidden(true)
+        SpikeGraph(
+            series: [.init(values: Array(samples.suffix(sparklineWindow)), color: NetGraphPalette.latency, alpha: NetGraphPalette.latencyAlpha)],
+            height: 48,
+            labelFormat: { "\(Int($0.rounded()))" }
+        )
     }
 }
