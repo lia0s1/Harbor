@@ -61,6 +61,12 @@ final class SessionManager: ObservableObject {
         var monitor: MonitorService?
         /// ICMP/TCP ping prober for the latency widget.
         var ping: PingService?
+        /// TCP handshake-latency prober (NWConnection to the host's SSH port),
+        /// for the 网络工具 sheet. Created per session but started on demand —
+        /// it idles until that sheet opens it.
+        var tcpPing: TcpPingService?
+        /// One-shot local traceroute runner for the 网络工具 sheet.
+        var traceroute: TracerouteService?
         /// Live port-forward toggle service (nil when the host has no forwards).
         var forwarding: ForwardingService?
         /// Remote file browser data source.
@@ -220,6 +226,16 @@ final class SessionManager: ObservableObject {
         services[session.id]?.ping
     }
 
+    /// TCP handshake-latency prober for a session (nil only for unknown IDs).
+    func tcpPing(for session: TerminalSession) -> TcpPingService? {
+        services[session.id]?.tcpPing
+    }
+
+    /// On-demand traceroute runner for a session (nil only for unknown IDs).
+    func traceroute(for session: TerminalSession) -> TracerouteService? {
+        services[session.id]?.traceroute
+    }
+
     /// Live port-forward toggle service for a session (nil when the session
     /// has no forwards defined or its ID is unknown).
     func forwarding(for session: TerminalSession) -> ForwardingService? {
@@ -253,7 +269,7 @@ final class SessionManager: ObservableObject {
         let hostID = session.host.id
         let destination = session.destination
         systemInfoObservers[session.id] = service.$state.sink { [weak self] state in
-            guard case .loaded(let info) = state else { return }
+            guard case .loaded(let info, _) = state else { return }
             MainActor.assumeIsolated {
                 self?.recordOS(hostID: hostID, destination: destination,
                                prettyName: info.prettyName, uname: info.os)
@@ -305,6 +321,8 @@ final class SessionManager: ObservableObject {
             readiness: readiness
         )
         bundle.ping = PingService(hostname: session.host.hostname)
+        bundle.tcpPing = TcpPingService(hostname: session.host.hostname, port: session.host.port)
+        bundle.traceroute = TracerouteService(hostname: session.host.hostname)
         if !session.host.portForwards.isEmpty {
             let exec = RemoteExec(
                 destination: session.destination,
@@ -459,7 +477,6 @@ final class SessionManager: ObservableObject {
                 services[session.id]?.ping?.start()
                 if monitorVisible {
                     services[session.id]?.monitor?.start()
-                    systemInfo(for: session).fetchIfNeeded()
                 } else {
                     services[session.id]?.monitor?.pause()
                 }
@@ -468,6 +485,20 @@ final class SessionManager: ObservableObject {
                 // sample and flash the empty/checking cards.
                 services[session.id]?.monitor?.pause()
                 services[session.id]?.ping?.pause()
+                // The 网络工具 probes belong to the deselected session's sheet;
+                // stop burning handshakes/traces nobody is looking at. They
+                // restart on demand when the sheet is opened again.
+                services[session.id]?.tcpPing?.pause()
+                services[session.id]?.traceroute?.stop()
+            }
+            // Prefetch the one-shot 系统信息 report for EVERY running session,
+            // not just the selected one — opening the sheet in a background
+            // tab must not pay socket-gate + probe round trips on the click
+            // (that read as "几把慢" on high-RTT hosts). One cheap probe per
+            // session; the view shows the per-host disk snapshot instantly
+            // (stale-while-revalidate) and this refreshes it in place.
+            if session.state == .running {
+                systemInfo(for: session).fetchIfNeeded()
             }
             // Keep file/docker browsers warm for every live session while the
             // bottom panel is open. Stopping them on tab switch is what made
@@ -492,6 +523,8 @@ final class SessionManager: ObservableObject {
         if let bundle = services.removeValue(forKey: sessionID) {
             bundle.monitor?.stop()
             bundle.ping?.stop()
+            bundle.tcpPing?.stop()
+            bundle.traceroute?.stop()
             bundle.files?.stop()
             bundle.docker?.stop()
             bundle.systemInfo?.cancel()

@@ -1,21 +1,41 @@
 import SwiftUI
+import HarborKit
 
-/// In-code vector marks for the common distros, drawn in white to sit on the
-/// host avatar's brand-color circle (Ubuntu's Circle of Friends, Arch's
-/// triangle, Alpine's mountains, …). Distros without a hand-drawn mark fall back
-/// to the colored initial (see `HostAvatarView`).
+/// Distro/OS logo view. Resolution order:
+/// 1. A real logo imageset in the asset catalog (`os-<id>`, see
+///    `App/Assets.xcassets/LOGO-CREDITS.md`) rendered in its true brand colors.
+/// 2. The hand-drawn white vector marks below (kept for ids without a real
+///    logo asset) so older call sites on colored avatar discs still work.
+///
+/// Callers that want a colored-initial fallback (e.g. `HostAvatarView`) decide
+/// that themselves via `OSLogo.has(_:)`.
 struct OSLogo: View {
     let osID: String
 
-    /// Which ids have a real vector mark here.
+    /// True when this id renders something better than a colored initial —
+    /// either a real logo asset or a hand-drawn mark.
     static func has(_ osID: String?) -> Bool {
         guard let osID else { return false }
-        return drawable.contains(osID)
+        return OSLogoAsset.assetName(for: osID) != nil || drawable.contains(osID)
     }
 
+    /// Ids with only a hand-drawn mark (used when no real asset exists).
     private static let drawable: Set<String> = ["ubuntu", "arch", "alpine", "debian", "fedora"]
 
     var body: some View {
+        if let assetName = OSLogoAsset.assetName(for: osID) {
+            Image(assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+        } else {
+            legacyMark
+        }
+    }
+
+    /// The original hand-drawn white marks, kept as fallback for ids whose
+    /// real logo is not shipped.
+    private var legacyMark: some View {
         Canvas { ctx, size in
             let white = GraphicsContext.Shading.color(.white)
             switch osID {
