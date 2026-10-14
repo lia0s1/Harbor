@@ -14,6 +14,9 @@ final class HostStore: JSONFileStore<SSHHost> {
     /// (`hostStore.hosts`) keep working unchanged.
     var hosts: [SSHHost] { items }
 
+    /// Cloud sync collection registration (see `JSONFileStore`).
+    override var syncCollectionID: String? { SyncCollectionID.hosts.rawValue }
+
     nonisolated static func defaultFileURL() -> URL {
         JSONFileStore<SSHHost>.defaultFileURL(filename: "hosts.json")
     }

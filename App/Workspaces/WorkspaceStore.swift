@@ -68,6 +68,9 @@ struct WorkspaceRestoreResult {
 final class WorkspaceStore: JSONFileStore<Workspace> {
     var workspaces: [Workspace] { items }
 
+    /// Cloud sync collection registration (see `JSONFileStore`).
+    override var syncCollectionID: String? { SyncCollectionID.workspaces.rawValue }
+
     nonisolated static func defaultFileURL() -> URL {
         JSONFileStore<Workspace>.defaultFileURL(filename: "workspaces.json")
     }

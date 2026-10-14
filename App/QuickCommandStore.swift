@@ -16,6 +16,9 @@ final class QuickCommandStore: JSONFileStore<QuickCommand> {
     /// (`store.commands`) keep working unchanged.
     var commands: [QuickCommand] { items }
 
+    /// Cloud sync collection registration (see `JSONFileStore`).
+    override var syncCollectionID: String? { SyncCollectionID.commands.rawValue }
+
     nonisolated static func defaultFileURL() -> URL {
         JSONFileStore<QuickCommand>.defaultFileURL(filename: "commands.json")
     }

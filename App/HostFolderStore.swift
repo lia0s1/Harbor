@@ -16,6 +16,9 @@ final class HostFolderStore: JSONFileStore<HostFolder> {
         items.sorted { $0.order == $1.order ? $0.name < $1.name : $0.order < $1.order }
     }
 
+    /// Cloud sync collection registration (see `JSONFileStore`).
+    override var syncCollectionID: String? { SyncCollectionID.folders.rawValue }
+
     nonisolated static func defaultFileURL() -> URL {
         JSONFileStore<HostFolder>.defaultFileURL(filename: "folders.json")
     }

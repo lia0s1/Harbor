@@ -127,6 +127,33 @@ class JSONFileStore<Element: Identifiable & Codable & Sendable>: ObservableObjec
         self.decodeItems = decode
         self.encodeItems = encode
         load()
+        // Synced subclasses self-register; the engine stays inert until the
+        // user enables sync, so this is free when the feature is off.
+        if syncCollectionID != nil {
+            CloudSyncEngine.shared.register(self)
+        }
+    }
+
+    // MARK: - Sync hooks
+
+    /// Subclasses participating in cloud sync override with their collection
+    /// id (`SyncCollectionID`). nil (default) = never synced.
+    var syncCollectionID: String? { nil }
+
+    /// Fired once per local mutation with the post-change snapshot. Injected
+    /// by `CloudSyncEngine`; the store itself knows nothing about sync.
+    var onItemsChanged: (([Element]) -> Void)?
+
+    /// True while a remote merge result is being applied — suppresses the
+    /// change callback so a pull never echoes back as a push.
+    private var applyingRemote = false
+
+    /// Replaces the item list from a remote merge: persists exactly like
+    /// `replaceAll(with:)` but without firing `onItemsChanged`.
+    func applyRemote(_ newItems: [Element]) {
+        applyingRemote = true
+        defer { applyingRemote = false }
+        replaceAll(with: newItems)
     }
 
     // MARK: - Subclass hooks
@@ -241,6 +268,9 @@ class JSONFileStore<Element: Identifiable & Codable & Sendable>: ObservableObjec
     }
 
     func save() {
+        if !applyingRemote {
+            onItemsChanged?(items)
+        }
         saveGeneration += 1
         let generation = saveGeneration
         let data: Data

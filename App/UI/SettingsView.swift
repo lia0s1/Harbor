@@ -21,6 +21,8 @@ struct SettingsView: View {
                 .tabItem { Label(L("传输"), systemImage: "arrow.up.arrow.down") }
             PrivacySettingsView()
                 .tabItem { Label(L("隐私"), systemImage: "hand.raised") }
+            CloudSyncSettingsView()
+                .tabItem { Label(L("云同步"), systemImage: "icloud") }
             AboutSettingsView()
                 .tabItem { Label(L("关于"), systemImage: "info.circle") }
         }
@@ -93,6 +95,187 @@ private struct PrivacySettingsView: View {
         HistoryPrivacyPreference.clear()
         CommandHistoryStore.shared.clear()
         PathHistoryStore.shared.clear()
+    }
+}
+
+// MARK: - 云同步
+
+/// Folder-based cloud sync (design: docs/cloud-sync-design.md). The engine is
+/// a singleton that stores self-register with; this tab only binds settings
+/// keys and renders the engine's published status.
+private struct CloudSyncSettingsView: View {
+    @AppStorage(SyncSettings.enabledKey) private var syncEnabled = false
+    @AppStorage(SyncSettings.collectionKey(.hosts)) private var syncHosts = true
+    @AppStorage(SyncSettings.collectionKey(.folders)) private var syncFolders = true
+    @AppStorage(SyncSettings.collectionKey(.commands)) private var syncCommands = true
+    @AppStorage(SyncSettings.collectionKey(.scripts)) private var syncScripts = true
+    @AppStorage(SyncSettings.collectionKey(.workspaces)) private var syncWorkspaces = true
+    @AppStorage(SyncSettings.stripHostNotesKey) private var stripNotes = true
+    @ObservedObject private var engine = CloudSyncEngine.shared
+    @State private var showDeleteConfirmation = false
+    /// Bumped after picking/clearing the directory so the path row re-reads
+    /// UserDefaults (the directory setting lives outside @AppStorage here).
+    @State private var directoryRevision = UUID()
+
+    var body: some View {
+        Form {
+            Section(L("云同步")) {
+                Toggle(L("启用云同步"), isOn: $syncEnabled)
+                directoryRow
+            }
+
+            if syncEnabled {
+                statusSection
+                collectionsSection
+            }
+
+            Section(L("隐私")) {
+                Text(L("同步内容：主机（地址、用户名、端口、密钥路径、隧道规则）、文件夹、快捷命令、脚本、工作区。私钥本体、密码、TOTP 密钥、命令历史、会话录制与 IP 归属地缓存不会同步。"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(L("快捷命令与脚本正文为明文：若你把口令写进了命令模板，它会随之进入同步目录。建议用 {参数} 占位符在运行时输入口令。"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(L("数据去向为你选择的同步目录（默认 iCloud Drive），Harbor 不经过任何自建服务器。"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: syncEnabled) { _, _ in engine.reconfigure() }
+        .onChange(of: syncHosts) { _, _ in engine.settingsChanged() }
+        .onChange(of: syncFolders) { _, _ in engine.settingsChanged() }
+        .onChange(of: syncCommands) { _, _ in engine.settingsChanged() }
+        .onChange(of: syncScripts) { _, _ in engine.settingsChanged() }
+        .onChange(of: syncWorkspaces) { _, _ in engine.settingsChanged() }
+        .onChange(of: stripNotes) { _, _ in engine.settingsChanged() }
+    }
+
+    // MARK: 目录
+
+    @ViewBuilder private var directoryRow: some View {
+        // Reading directoryRevision ties the row to the picker result.
+        let _ = directoryRevision
+        let custom = SyncSettings.customDirectory
+        LabeledContent(L("同步目录")) {
+            HStack(spacing: DS.Space.s) {
+                Text(custom?.path ?? SyncSettings.defaultDirectory.path)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Button(L("选择目录…")) { chooseDirectory() }
+                if custom != nil {
+                    Button(L("恢复默认")) {
+                        SyncSettings.customDirectory = nil
+                        directoryRevision = UUID()
+                        engine.reconfigure()
+                    }
+                }
+            }
+        }
+        if custom == nil && !SyncSettings.iCloudDriveAvailable {
+            Label(L("未检测到 iCloud Drive，请选择其他同步目录"), systemImage: "exclamationmark.triangle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func chooseDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.message = L("选择用于同步的文件夹（iCloud Drive、Dropbox、Syncthing 等均可）")
+        panel.prompt = L("选择")
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        SyncSettings.customDirectory = url
+        directoryRevision = UUID()
+        engine.reconfigure()
+    }
+
+    // MARK: 状态
+
+    private var statusSection: some View {
+        Section(L("状态")) {
+            LabeledContent(L("上次同步")) {
+                if let date = engine.lastSyncAt {
+                    Text(date, format: .dateTime)
+                } else {
+                    Text(L("从未"))
+                }
+            }
+            LabeledContent(L("已同步设备")) {
+                Text("\(engine.deviceCount)")
+                    .monospacedDigit()
+            }
+            statusLine
+            HStack(spacing: DS.Space.s) {
+                Button(L("立即同步")) { engine.syncNow() }
+                    .disabled(engine.status == .syncing)
+                Spacer()
+                Button(L("删除云端同步数据"), role: .destructive) {
+                    showDeleteConfirmation = true
+                }
+            }
+            .confirmationDialog(
+                L("删除云端同步数据？"),
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button(L("删除"), role: .destructive) { engine.deleteRemoteData() }
+                Button(L("取消"), role: .cancel) { }
+            } message: {
+                Text(L("将删除同步目录中的 sync-envelope.json。本机数据不受影响；同步保持开启时，下次本地变更会重建该文件。"))
+            }
+        }
+    }
+
+    @ViewBuilder private var statusLine: some View {
+        switch engine.status {
+        case .syncing:
+            Text(L("同步中…"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .unavailable:
+            Text(L("同步目录不可用（未登录 iCloud 或所选目录不可写）。"))
+                .font(.caption)
+                .foregroundStyle(.orange)
+        case .error(let message):
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        case .readOnlyNewerVersion:
+            Text(L("同步文件由更新版本的 Harbor 写入，本机仅读取不回写。请升级 Harbor。"))
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        case .disabled, .idle:
+            EmptyView()
+        }
+    }
+
+    // MARK: 集合开关
+
+    private var collectionsSection: some View {
+        Section(L("同步内容")) {
+            Toggle(L("主机"), isOn: $syncHosts)
+            Toggle(L("文件夹"), isOn: $syncFolders)
+            Toggle(L("快捷命令"), isOn: $syncCommands)
+            Toggle(L("脚本"), isOn: $syncScripts)
+            Toggle(L("工作区"), isOn: $syncWorkspaces)
+            Toggle(L("不同步主机备注（notes）"), isOn: $stripNotes)
+            Text(L("备注是自由文本，最可能写入敏感信息。开启时备注不离开本机；其他设备的空备注也不会覆盖本机备注。"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

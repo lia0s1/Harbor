@@ -18,6 +18,9 @@ final class ScriptStore: JSONFileStore<ScriptSnippet> {
     /// `store.snippets`.
     var snippets: [ScriptSnippet] { items }
 
+    /// Cloud sync collection registration (see `JSONFileStore`).
+    override var syncCollectionID: String? { SyncCollectionID.scripts.rawValue }
+
     nonisolated static func defaultFileURL() -> URL {
         JSONFileStore<ScriptSnippet>.defaultFileURL(filename: "scripts.json")
     }

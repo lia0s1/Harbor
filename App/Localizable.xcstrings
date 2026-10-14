@@ -1106,6 +1106,23 @@
         }
       }
     },
+    "上次同步": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last Sync"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次同步"
+          }
+        }
+      }
+    },
     "上次更新：%@": {
       "extractionState": "manual",
       "localizations": {
@@ -1323,6 +1340,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "不可中断"
+          }
+        }
+      }
+    },
+    "不同步主机备注（notes）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Sync Host Notes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不同步主机备注（notes）"
           }
         }
       }
@@ -1752,6 +1786,23 @@
         }
       }
     },
+    "云同步": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Sync"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云同步"
+          }
+        }
+      }
+    },
     "交换": {
       "extractionState": "manual",
       "localizations": {
@@ -1884,6 +1935,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "从文本导入…"
+          }
+        }
+      }
+    },
+    "从未": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从未"
           }
         }
       }
@@ -3010,6 +3078,40 @@
         }
       }
     },
+    "删除云端同步数据": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Cloud Sync Data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除云端同步数据"
+          }
+        }
+      }
+    },
+    "删除云端同步数据？": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Cloud Sync Data?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除云端同步数据？"
+          }
+        }
+      }
+    },
     "删除分组 “%@”？": {
       "extractionState": "manual",
       "localizations": {
@@ -3809,6 +3911,125 @@
         }
       }
     },
+    "同步中…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步中…"
+          }
+        }
+      }
+    },
+    "同步内容": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What Syncs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步内容"
+          }
+        }
+      }
+    },
+    "同步内容：主机（地址、用户名、端口、密钥路径、隧道规则）、文件夹、快捷命令、脚本、工作区。私钥本体、密码、TOTP 密钥、命令历史、会话录制与 IP 归属地缓存不会同步。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synced: hosts (address, username, port, key paths, tunnel rules), folders, quick commands, scripts, workspaces. Never synced: private keys, passwords, TOTP secrets, command history, session recordings, and GeoIP caches."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步内容：主机（地址、用户名、端口、密钥路径、隧道规则）、文件夹、快捷命令、脚本、工作区。私钥本体、密码、TOTP 密钥、命令历史、会话录制与 IP 归属地缓存不会同步。"
+          }
+        }
+      }
+    },
+    "同步文件无法解析，已暂停同步以免覆盖数据。文件：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sync file could not be parsed; sync paused to avoid overwriting data. File: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步文件无法解析，已暂停同步以免覆盖数据。文件：%@"
+          }
+        }
+      }
+    },
+    "同步文件由更新版本的 Harbor 写入，本机仅读取不回写。请升级 Harbor。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sync file was written by a newer Harbor; this Mac merges but never writes back. Please upgrade Harbor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步文件由更新版本的 Harbor 写入，本机仅读取不回写。请升级 Harbor。"
+          }
+        }
+      }
+    },
+    "同步目录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync Folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步目录"
+          }
+        }
+      }
+    },
+    "同步目录不可用（未登录 iCloud 或所选目录不可写）。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync folder unavailable (iCloud not signed in, or the chosen folder is not writable)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步目录不可用（未登录 iCloud 或所选目录不可写）。"
+          }
+        }
+      }
+    },
     "名称": {
       "extractionState": "manual",
       "localizations": {
@@ -3907,6 +4128,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "启动时间"
+          }
+        }
+      }
+    },
+    "启用云同步": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud Sync"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用云同步"
           }
         }
       }
@@ -4366,6 +4604,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "备注"
+          }
+        }
+      }
+    },
+    "备注是自由文本，最可能写入敏感信息。开启时备注不离开本机；其他设备的空备注也不会覆盖本机备注。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes are free text and the most likely place for sensitive details. When on, notes never leave this Mac, and an empty remote note never overwrites the local one."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备注是自由文本，最可能写入敏感信息。开启时备注不离开本机；其他设备的空备注也不会覆盖本机备注。"
           }
         }
       }
@@ -5186,6 +5441,23 @@
         }
       }
     },
+    "将删除同步目录中的 sync-envelope.json。本机数据不受影响；同步保持开启时，下次本地变更会重建该文件。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This deletes sync-envelope.json from the sync folder. Local data is not affected; while sync stays enabled, the next local change recreates the file."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将删除同步目录中的 sync-envelope.json。本机数据不受影响；同步保持开启时，下次本地变更会重建该文件。"
+          }
+        }
+      }
+    },
     "将绕过回收站，直接在服务器上执行 rm -rf 永久删除以下 %lld 个项目，不可恢复：\n%@": {
       "extractionState": "manual",
       "localizations": {
@@ -5437,6 +5709,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已取消"
+          }
+        }
+      }
+    },
+    "已同步设备": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synced Devices"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已同步设备"
           }
         }
       }
@@ -6032,6 +6321,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "当前背景"
+          }
+        }
+      }
+    },
+    "快捷命令": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Commands"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷命令"
+          }
+        }
+      }
+    },
+    "快捷命令与脚本正文为明文：若你把口令写进了命令模板，它会随之进入同步目录。建议用 {参数} 占位符在运行时输入口令。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick commands and scripts are stored as plain text: a password written into a command template travels to the sync folder with it. Prefer {parameter} placeholders and enter secrets at run time."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷命令与脚本正文为明文：若你把口令写进了命令模板，它会随之进入同步目录。建议用 {参数} 占位符在运行时输入口令。"
           }
         }
       }
@@ -7005,6 +7328,23 @@
         }
       }
     },
+    "数据去向为你选择的同步目录（默认 iCloud Drive），Harbor 不经过任何自建服务器。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data goes only to the sync folder you choose (iCloud Drive by default); Harbor talks to no server of its own."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数据去向为你选择的同步目录（默认 iCloud Drive），Harbor 不经过任何自建服务器。"
+          }
+        }
+      }
+    },
     "文件": {
       "extractionState": "manual",
       "localizations": {
@@ -7018,6 +7358,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "文件"
+          }
+        }
+      }
+    },
+    "文件夹": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folders"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹"
           }
         }
       }
@@ -8480,6 +8837,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未找到可用的本机 SSH 公钥。请先在“设置 → 密钥”生成带密码保护的密钥，或在上方选择已有私钥。"
+          }
+        }
+      }
+    },
+    "未检测到 iCloud Drive，请选择其他同步目录": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive not detected — please choose another sync folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未检测到 iCloud Drive，请选择其他同步目录"
           }
         }
       }
@@ -10694,6 +11068,23 @@
         }
       }
     },
+    "立即同步": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync Now"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即同步"
+          }
+        }
+      }
+    },
     "立即清除命令与路径历史": {
       "extractionState": "manual",
       "localizations": {
@@ -11625,6 +12016,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "背景颜色"
+          }
+        }
+      }
+    },
+    "脚本": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scripts"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脚本"
           }
         }
       }
@@ -13002,6 +13410,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "选择标签页 %lld"
+          }
+        }
+      }
+    },
+    "选择用于同步的文件夹（iCloud Drive、Dropbox、Syncthing 等均可）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a folder for syncing (iCloud Drive, Dropbox, Syncthing, etc.)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择用于同步的文件夹（iCloud Drive、Dropbox、Syncthing 等均可）"
+          }
+        }
+      }
+    },
+    "选择目录…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择目录…"
           }
         }
       }
