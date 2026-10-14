@@ -1711,6 +1711,41 @@ final class FileService: ObservableObject {
         }
     }
 
+    /// 快速删除 (rm): the whole selection in ONE remote `rm -rf` round trip
+    /// over the mux socket, bypassing sftp's per-file recursion — the fast
+    /// path for large trees (FinalShell's approach).
+    ///
+    /// Unlike delete(_:) this is NOT optimistic: it runs as a blocking
+    /// mutation and re-lists the directory afterwards (via runMutation), so
+    /// stderr — permission denied, read-only filesystem, … — is reported
+    /// against the real end state. The command is built and validated by
+    /// `RemoteQuickDelete`; a selection containing control/newline characters
+    /// is rejected with a UI-facing reason instead of a shell injection risk.
+    func quickDelete(_ items: [RemoteFileEntry]) {
+        guard canMutate, !items.isEmpty else { return }
+        let script: String
+        do {
+            script = try RemoteQuickDelete.command(paths: items.map { absolutePath(of: $0) })
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        let exec = self.exec
+        runMutation { await exec.run(script, timeout: Self.mutationTimeout) }
+    }
+
+    /// Preflight for the 快速删除 menu item: the user-facing reason the current
+    /// selection cannot be quick-deleted (e.g. a name containing a newline), or
+    /// nil when the confirmation dialog may open.
+    func quickDeleteBlockReason(_ items: [RemoteFileEntry]) -> String? {
+        do {
+            try RemoteQuickDelete.validate(paths: items.map { absolutePath(of: $0) })
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     /// One-click extract of an uploaded archive (zip / 7z / rar / tar.* / gz / …)
     /// into its own directory, then re-list to reveal the result. The matching
     /// Linux tool (unzip / 7z / unrar / tar …) must exist on the server; a

@@ -481,3 +481,65 @@ public enum SFTPBatch {
         "mkdir \(try quote(path))"
     }
 }
+
+// MARK: - Quick delete (shell rm over the mux socket)
+
+/// Errors from building a quick-delete (`rm -rf`) remote command.
+public enum QuickDeleteError: Error, Equatable, LocalizedError, Sendable {
+    /// The selection was empty — there is nothing to delete.
+    case emptySelection
+    /// A path is not absolute. Quick delete must never resolve a target
+    /// relative to the ssh login directory.
+    case notAbsolute(String)
+    /// A path contains CR/LF/NUL/other control characters. The command runs
+    /// as a single remote shell line, where such characters would break out
+    /// of the single-quoted argument and smuggle in additional commands.
+    case unsafePath(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .emptySelection:
+            return "No items selected"
+        case .notAbsolute:
+            return "Quick delete requires an absolute remote path"
+        case .unsafePath:
+            // Never echo the hostile path back: it contains the very control
+            // characters we rejected, which would corrupt the error banner.
+            return "Path contains control or newline characters that cannot be used in a shell command"
+        }
+    }
+}
+
+/// Builds the `rm -rf` shell line behind the file panel's 快速删除 action.
+///
+/// sftp deletes recurse file-by-file over the mux socket (one round trip per
+/// entry), so wiping a large directory tree is slow. This bypasses sftp and
+/// issues ONE remote `rm -rf` instead — the same trade FinalShell makes.
+/// Every path is validated (absolute, free of control/newline characters) and
+/// single-quoted individually via `sq`, so a hostile name from a remote
+/// listing cannot inject extra shell commands into the auxiliary channel.
+public enum RemoteQuickDelete {
+    /// `rm -rf -- '<path>' …` for the given absolute remote paths.
+    /// The `--` stops option parsing so a name like `-rf` stays an operand.
+    public static func command(paths: [String]) throws -> String {
+        try validate(paths: paths)
+        return "rm -rf -- " + paths.map { sq($0) }.joined(separator: " ")
+    }
+
+    /// Validation only — used by the UI to explain a rejected selection
+    /// before the confirmation dialog even opens.
+    public static func validate(paths: [String]) throws {
+        guard !paths.isEmpty else { throw QuickDeleteError.emptySelection }
+        let forbidden = CharacterSet.controlCharacters.union(.newlines)
+        for path in paths {
+            guard !path.isEmpty,
+                  !path.unicodeScalars.contains(where: { forbidden.contains($0) })
+            else {
+                throw QuickDeleteError.unsafePath(path)
+            }
+            guard path.hasPrefix("/") else {
+                throw QuickDeleteError.notAbsolute(path)
+            }
+        }
+    }
+}

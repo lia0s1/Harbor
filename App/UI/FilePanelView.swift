@@ -295,6 +295,9 @@ struct RemoteFilePane: View {
     @State private var editingFile: RemoteFileEntry?
     @State private var deleteTargets: [RemoteFileEntry] = []
     @State private var deleteConfirmPresented = false
+    /// 快速删除 (rm) parallel flow: bypasses sftp with a single remote `rm -rf`.
+    @State private var quickDeleteTargets: [RemoteFileEntry] = []
+    @State private var quickDeleteConfirmPresented = false
     @State private var newFolderPresented = false
     @State private var newFolderName = ""
     /// Archive awaiting an "解压到…" target path, plus the editable destination.
@@ -366,6 +369,13 @@ struct RemoteFilePane: View {
                 Button(L("取消"), role: .cancel) { deleteTargets = [] }
             } message: {
                 Text(verbatim: L("此操作无法撤销，将删除：\n%@", deletePathsPreview))
+            }
+            .alert(quickDeleteTitle, isPresented: $quickDeleteConfirmPresented) {
+                Button(L("执行 rm 删除"), role: .destructive, action: confirmQuickDelete)
+                    .disabled(!canMutate)
+                Button(L("取消"), role: .cancel) { quickDeleteTargets = [] }
+            } message: {
+                Text(verbatim: L("将绕过回收站，直接在服务器上执行 rm -rf 永久删除以下 %lld 个项目，不可恢复：\n%@", quickDeleteTargets.count, quickDeletePathsPreview))
             }
             .confirmationDialog(
                 uploadConflictTitle,
@@ -464,6 +474,7 @@ struct RemoteFilePane: View {
             moveTarget = nil
             newFolderPresented = false
             deleteConfirmPresented = false
+            quickDeleteConfirmPresented = false
             inlineRenamingID = nil
             treeModel.stop()
         }
@@ -501,6 +512,13 @@ struct RemoteFilePane: View {
         guard canMutate else { return }
         service.delete(deleteTargets)
         deleteTargets = []
+        selection.removeAll()
+    }
+
+    private func confirmQuickDelete() {
+        guard canMutate else { return }
+        service.quickDelete(quickDeleteTargets)
+        quickDeleteTargets = []
         selection.removeAll()
     }
 
@@ -941,6 +959,18 @@ struct RemoteFilePane: View {
                 deleteConfirmPresented = true
             }
             .disabled(mutationLocked)
+            // 快速删除: one rm -rf for the whole selection instead of sftp's
+            // per-file recursion. A name with control/newline characters can
+            // never become a shell operand — explain and refuse up front.
+            Button(L("快速删除 (rm)…"), role: .destructive) {
+                if let reason = service.quickDeleteBlockReason(items) {
+                    service.errorMessage = reason
+                } else {
+                    quickDeleteTargets = items
+                    quickDeleteConfirmPresented = true
+                }
+            }
+            .disabled(mutationLocked)
         }
     }
 
@@ -1077,6 +1107,19 @@ struct RemoteFilePane: View {
     /// Exact remote paths, capped at 8 lines.
     private var deletePathsPreview: String {
         let paths = deleteTargets.map { service.absolutePath(of: $0) }
+        if paths.count <= 8 { return paths.joined(separator: "\n") }
+        return paths.prefix(8).joined(separator: "\n") + L("\n…等 %lld 项", paths.count)
+    }
+
+    private var quickDeleteTitle: String {
+        quickDeleteTargets.count == 1
+            ? L("快速删除 \u{201C}%@\u{201D}？", quickDeleteTargets[0].name)
+            : L("快速删除 %lld 个项目？", quickDeleteTargets.count)
+    }
+
+    /// Exact remote paths, capped at 8 lines — same shape as the 删除 alert.
+    private var quickDeletePathsPreview: String {
+        let paths = quickDeleteTargets.map { service.absolutePath(of: $0) }
         if paths.count <= 8 { return paths.joined(separator: "\n") }
         return paths.prefix(8).joined(separator: "\n") + L("\n…等 %lld 项", paths.count)
     }
