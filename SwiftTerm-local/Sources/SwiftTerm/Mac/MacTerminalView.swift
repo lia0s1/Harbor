@@ -8,6 +8,11 @@
 //
 //  Created by Miguel de Icaza on 3/4/20.
 //
+// HARBOR-PATCH (vendored fork — keep this when merging upstream):
+//   `doCommand(by:)` below is `open override` (upstream: `public override`)
+//   so the app (HarborTerminalView) can intercept deleteBackward: for the
+//   per-host backspace key mapping.
+//
 #if os(macOS)
 import Foundation
 import AppKit
@@ -1176,7 +1181,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         super.keyUp(with: event)
     }
     
-    public override func doCommand(by selector: Selector) {
+    open override func doCommand(by selector: Selector) {
         if !terminal.keyboardEnhancementFlags.isEmpty {
             switch selector {
             case #selector(insertNewline(_:)):

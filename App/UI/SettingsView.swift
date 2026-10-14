@@ -33,6 +33,10 @@ struct SettingsView: View {
 private struct PrivacySettingsView: View {
     @AppStorage(HistoryPrivacyPreference.persistenceKey) private var persistHistory = false
     @State private var showClearHistoryConfirmation = false
+    /// Live GeoIP toggle (隐私区；GeoIPSettings 的注释即指向这里）。
+    /// @ObservedObject so flipping the switch reveals the cache row inline.
+    @ObservedObject private var geoIP = GeoIPSettings.shared
+    @State private var geoIPCacheCleared = false
 
     var body: some View {
         Form {
@@ -56,6 +60,26 @@ private struct PrivacySettingsView: View {
                     Button(L("取消"), role: .cancel) { }
                 } message: {
                     Text(L("将删除所有已保存的命令和远程路径历史，此操作无法撤销。"))
+                }
+            }
+
+            Section(L("IP 归属地查询")) {
+                Toggle(L("查询主机 IP 的归属地（国家/城市）"), isOn: $geoIP.isEnabled)
+                Text(L("开启后会向第三方服务查询主机 IP 的国家/城市，主机地址会发给该服务。内网地址仅本地识别，不发起网络请求。默认关闭。"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if geoIP.isEnabled {
+                    Button(L("清除归属地缓存")) {
+                        GeoIPService.shared.clearCache()
+                        geoIPCacheCleared = true
+                    }
+                    if geoIPCacheCleared {
+                        Text(L("已清除归属地缓存。"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -150,11 +174,12 @@ private struct AppearanceSettingsView: View {
     @EnvironmentObject private var localization: LocalizationManager
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.defaultValue.rawValue
     @AppStorage("themeID") private var themeID = TerminalTheme.defaultThemeID
+    @ObservedObject private var themeStore = TerminalThemeStore.shared
 
-    private let columns = [
-        GridItem(.flexible(), spacing: DS.Space.m),
-        GridItem(.flexible(), spacing: DS.Space.m),
-    ]
+    /// Transient inline feedback for import/export/delete actions.
+    @State private var themeActionMessage: String?
+    @State private var themeActionIsError = false
+    @State private var showDeleteThemeConfirmation = false
 
     var body: some View {
         Form {
@@ -177,18 +202,10 @@ private struct AppearanceSettingsView: View {
                 .pickerStyle(.segmented)
             }
 
-            Section("终端主题") {
-                LazyVGrid(columns: columns, spacing: DS.Space.m) {
-                    ForEach(TerminalTheme.builtIn) { theme in
-                        ThemeCard(theme: theme, isSelected: theme.id == themeID) {
-                            themeID = theme.id
-                        }
-                    }
-                }
-                .padding(.vertical, DS.Space.xs)
-            }
+            themeSection
         }
         .formStyle(.grouped)
+        .onAppear { themeStore.rescan() }
     }
 
     /// "跟随系统" (localized) for `system`; otherwise the language's own name so
@@ -196,55 +213,171 @@ private struct AppearanceSettingsView: View {
     private func languageLabel(_ language: AppLanguage) -> String {
         language == .system ? L("跟随系统") : language.nativeLabel
     }
-}
 
-/// Live theme preview card: terminal background, prompt sample, the 16 ANSI
-/// swatches, and the theme name. Click to apply (updates open terminals).
-private struct ThemeCard: View {
-    let theme: TerminalTheme
-    let isSelected: Bool
-    let onSelect: () -> Void
+    // MARK: 终端主题（内置 + .harbortheme 文件方案）
 
-    var body: some View {
-        Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("harbor ❯ ssh prod")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(theme.foreground.swiftUIColor)
-                        .lineLimit(1)
-                    swatches(0..<8)
-                    swatches(8..<16)
+    private var selectedTheme: TerminalTheme {
+        TerminalTheme.theme(withID: themeID)
+    }
+
+    private var isSelectedThemeFromFile: Bool {
+        themeStore.fileThemes.contains { $0.id == themeID }
+    }
+
+    private var themeSection: some View {
+        Section("终端主题") {
+            Picker("主题", selection: $themeID) {
+                ForEach(TerminalTheme.builtIn) { theme in
+                    Text(theme.name).tag(theme.id)
                 }
-                .padding(DS.Space.s + 2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(theme.background.swiftUIColor)
-
-                HStack {
-                    Text(theme.name)
-                        .font(.caption.weight(.medium))
-                    Spacer()
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(Color.accentColor)
+                if !themeStore.fileThemes.isEmpty {
+                    Divider()
+                    ForEach(themeStore.fileThemes) { theme in
+                        Text(theme.name).tag(theme.id)
                     }
                 }
-                .padding(.horizontal, DS.Space.s + 2)
-                .padding(.vertical, 6)
-                .background(DS.Colors.chromeBackground)
+                // A stale id (deleted theme file between scans) must stay
+                // selectable-taggable or the picker renders empty.
+                if !TerminalTheme.allThemes.contains(where: { $0.id == themeID }) {
+                    Divider()
+                    Text(L("未知主题（%@）", themeID)).tag(themeID)
+                }
             }
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.medium))
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.medium)
-                    .strokeBorder(
-                        isSelected ? Color.accentColor : DS.Colors.separator,
-                        lineWidth: isSelected ? 2 : 1
-                    )
-            )
+
+            ThemePreviewPanel(theme: selectedTheme)
+
+            HStack(spacing: DS.Space.s) {
+                Button(L("导入主题…"), action: importTheme)
+                Button(L("导出当前主题…"), action: exportCurrentTheme)
+                Button(L("打开主题目录")) { themeStore.revealThemesDirectory() }
+                if isSelectedThemeFromFile {
+                    Button(L("删除"), role: .destructive) {
+                        showDeleteThemeConfirmation = true
+                    }
+                    .confirmationDialog(
+                        L("删除主题「%@」？", selectedTheme.name),
+                        isPresented: $showDeleteThemeConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button(L("移到废纸篓"), role: .destructive) {
+                            themeStore.delete(theme: selectedTheme)
+                        }
+                        Button(L("取消"), role: .cancel) { }
+                    } message: {
+                        Text(L("主题文件将移到废纸篓。"))
+                    }
+                }
+            }
+
+            if let message = themeActionMessage {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(themeActionIsError ? .red : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !themeStore.loadIssues.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("部分主题文件未加载："))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    ForEach(themeStore.loadIssues, id: \.self) { issue in
+                        Text(issue)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            Text(L("主题文件存放于 ~/Library/Application Support/Harbor/Themes/（.harbortheme），可复制分享。右键终端的背景/文字颜色覆盖仍然有效，主题是基底。"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .buttonStyle(.plain)
-        .help(L("使用主题“%@”", theme.name))
+    }
+
+    private func reportThemeAction(_ message: String?, isError: Bool) {
+        themeActionMessage = message
+        themeActionIsError = isError
+    }
+
+    private func importTheme() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: TerminalThemeStore.fileExtension)].compactMap { $0 }
+        panel.message = L("选择 .harbortheme 主题文件")
+        panel.prompt = L("导入")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if let error = themeStore.importTheme(from: url) {
+            reportThemeAction(L("导入失败：%@", error), isError: true)
+        } else {
+            // If exactly one new theme appeared, select it right away so the
+            // import feels immediate; otherwise just rescan quietly.
+            if let imported = themeStore.fileThemes.first(where: {
+                $0.name == url.deletingPathExtension().lastPathComponent
+                    || $0.id == url.deletingPathExtension().lastPathComponent
+            }) {
+                themeID = imported.id
+            }
+            reportThemeAction(L("已导入主题「%@」", url.deletingPathExtension().lastPathComponent), isError: false)
+        }
+    }
+
+    private func exportCurrentTheme() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: TerminalThemeStore.fileExtension)].compactMap { $0 }
+        panel.nameFieldStringValue = "\(selectedTheme.id).\(TerminalThemeStore.fileExtension)"
+        panel.message = L("导出当前主题为 .harbortheme 文件")
+        panel.prompt = L("导出")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if let error = themeStore.export(theme: selectedTheme, to: url) {
+            reportThemeAction(L("导出失败：%@", error), isError: true)
+        } else {
+            reportThemeAction(L("已导出到 %@。若存进主题目录即成为可选主题。", url.path), isError: false)
+        }
+    }
+}
+
+/// Preview swatch panel for the selected theme: terminal background, a sample
+/// prompt line, the 16 ANSI colors, and fg/cursor/selection chips. Themes with
+/// a frosted background also show their opacity/blur.
+private struct ThemePreviewPanel: View {
+    let theme: TerminalTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("harbor ❯ ssh prod")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(theme.foreground.swiftUIColor)
+                .lineLimit(1)
+            swatches(0..<8)
+            swatches(8..<16)
+            HStack(spacing: DS.Space.m) {
+                chip(L("光标"), color: theme.cursor.swiftUIColor)
+                if let selection = theme.selection {
+                    chip(L("选中"), color: selection.swiftUIColor)
+                }
+                if theme.usesFrostedBackground {
+                    Text(L("背景 %@ · 模糊 %@",
+                           "\(Int((theme.backgroundOpacity * 100).rounded()))%",
+                           "\(Int(theme.backgroundBlur))"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(DS.Space.s + 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.background.swiftUIColor)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.medium))
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.medium)
+                .strokeBorder(DS.Colors.separator, lineWidth: 1)
+        )
+        .padding(.vertical, DS.Space.xs)
     }
 
     private func swatches(_ range: Range<Int>) -> some View {
@@ -256,6 +389,18 @@ private struct ThemeCard: View {
             }
         }
     }
+
+    private func chip(_ label: String, color: SwiftUI.Color) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color)
+                .frame(width: 10, height: 10)
+                .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(.black.opacity(0.2), lineWidth: 0.5))
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
 }
 
 // MARK: - 终端
@@ -263,8 +408,10 @@ private struct ThemeCard: View {
 private struct TerminalSettingsView: View {
     @AppStorage(TerminalFontPreference.fontNameKey) private var terminalFontName = TerminalFontPreference.defaultFontName
     @AppStorage(TerminalFontPreference.fontSizeKey) private var terminalFontSize = TerminalFontPreference.defaultFontSize
+    @AppStorage(TerminalFontPreference.cjkFontNameKey) private var terminalCJKFontName = TerminalFontPreference.defaultCJKFontName
     @AppStorage("optionAsMeta") private var optionAsMeta = true
     @AppStorage("useMetalRenderer") private var useMetalRenderer = false
+    @AppStorage(BackspacePreference.globalDefaultKey) private var backspaceDefaultRaw = ""
     @AppStorage("themeID") private var themeID = TerminalTheme.defaultThemeID
     @AppStorage(TerminalBackgroundPreference.storageKey) private var backgroundRaw = ""
 
@@ -274,6 +421,9 @@ private struct TerminalSettingsView: View {
     /// enumeration runs once for the app's lifetime, not on every rebuild of
     /// this view struct (SwiftUI recreates the value frequently).
     private static let monospacedFamilies = TerminalSettingsView.availableMonospacedFamilies()
+
+    /// Families covering CJK ideographs (PingFang SC, Sarasa, …), computed once.
+    private static let cjkFamilies = TerminalFontCascade.availableCJKFamilies()
 
     /// Decoded view of the persisted background; writes re-encode to JSON so
     /// open terminals (observing the same key) update live.
@@ -301,6 +451,26 @@ private struct TerminalSettingsView: View {
                     }
                 }
 
+                Picker("中文字体", selection: $terminalCJKFontName) {
+                    Text(L("跟随系统")).tag("")
+                    ForEach(cjkFontChoices, id: \.self) { family in
+                        Text(family)
+                            .font(.custom(family, size: 12))
+                            .tag(family)
+                    }
+                }
+                if !terminalCJKFontName.isEmpty {
+                    LabeledContent("中文预览") {
+                        Text("中文终端 海纳百川 123")
+                            .font(.custom(terminalCJKFontName, size: terminalFontSize))
+                            .lineLimit(1)
+                    }
+                } else {
+                    Text(L("不选择时，中文等全角字符使用系统默认回退字体。"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Stepper(value: $terminalFontSize, in: TerminalSettingsView.fontSizeRange, step: 0.5) {
                     HStack {
                         Text(verbatim: L("字号"))
@@ -320,6 +490,16 @@ private struct TerminalSettingsView: View {
 
             Section("键盘") {
                 Toggle("将 Option 用作 Meta 键", isOn: $optionAsMeta)
+                Picker("退格键发送", selection: $backspaceDefaultRaw) {
+                    ForEach(SSHHost.BackspaceBehavior.allCases, id: \.self) { behavior in
+                        Text(verbatim: behavior == .auto ? L("自动（终端默认 DEL）") : behavior.wireLabel)
+                            .tag(behavior == .auto ? "" : behavior.rawValue)
+                    }
+                }
+                Text(L("个别主机退格行为异常时，可在主机编辑窗口的「终端行为」里单独覆盖。"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("渲染") {
@@ -338,6 +518,15 @@ private struct TerminalSettingsView: View {
         var families = Self.monospacedFamilies
         if !families.contains(terminalFontName) {
             families.insert(terminalFontName, at: 0)
+        }
+        return families
+    }
+
+    /// Same stale-value protection for the CJK font picker.
+    private var cjkFontChoices: [String] {
+        var families = Self.cjkFamilies
+        if !terminalCJKFontName.isEmpty && !families.contains(terminalCJKFontName) {
+            families.insert(terminalCJKFontName, at: 0)
         }
         return families
     }

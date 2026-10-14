@@ -19,6 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ControlMaster sockets live in ~/.cache/harbor (mode 700); create it
         // before the first session can spawn ssh.
         ControlMasterSupport.ensureCacheDirectory()
+        // Scan the .harbortheme directory up front: the store's init registers
+        // file themes into TerminalTheme's registry, and terminals/tabs resolve
+        // theme ids from there — this must happen before the first one does.
+        _ = TerminalThemeStore.shared
         // Remove any harbor-askpass-* temp dirs left by a previous crash before
         // the defer cleanup could run. Listing /tmp can stall on systems with
         // many temp files, so run off-actor.

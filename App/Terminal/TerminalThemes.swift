@@ -29,12 +29,15 @@ extension TerminalTheme.RGB {
 }
 
 extension TerminalView {
-    /// Installs the theme's 16-color ANSI palette plus default fg/bg/cursor.
-    /// Safe to call on a live terminal; SwiftTerm repaints existing content.
+    /// Installs the theme's 16-color ANSI palette plus default fg/bg/cursor and
+    /// the selection color (when the theme carries one; otherwise the system
+    /// default selection color is kept). Safe to call on a live terminal;
+    /// SwiftTerm repaints existing content.
     func apply(theme: TerminalTheme) {
         installColors(theme.ansi.map(\.terminalColor))
         nativeBackgroundColor = theme.background.nsColor
         nativeForegroundColor = theme.foreground.nsColor
         caretColor = theme.cursor.nsColor
+        selectedTextBackgroundColor = theme.selection?.nsColor ?? .selectedTextBackgroundColor
     }
 }

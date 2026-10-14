@@ -5,6 +5,12 @@ import os.log
 import SwiftTerm
 import UniformTypeIdentifiers
 
+/// UserDefaults key holding the global default Backspace key behavior
+/// (Settings → 终端 → 键盘). Per-host `SSHHost.backspaceBehavior` overrides it.
+enum BackspacePreference {
+    static let globalDefaultKey = "backspaceBehaviorDefault"
+}
+
 /// SwiftTerm terminal view subclass that reports the first byte of output, so
 /// the owning session can flip from `.connecting` to `.running`.
 @MainActor
@@ -29,6 +35,56 @@ final class HarborTerminalView: LocalProcessTerminalView {
         }
     }
     private var sawOutput = false
+
+    /// ZModem transfer router: while set, raw output bytes are offered here
+    /// first; returning true consumes them, so protocol bytes never reach the
+    /// screen, the TOTP detector, or the recording sink. Same lock discipline
+    /// as `_dataInterceptor` — written on main, read on SwiftTerm's I/O thread.
+    private var _byteRouter: (@Sendable (ArraySlice<UInt8>) -> Bool)?
+    var byteRouter: (@Sendable (ArraySlice<UInt8>) -> Bool)? {
+        get {
+            interceptorLock.lock()
+            defer { interceptorLock.unlock() }
+            return _byteRouter
+        }
+        set {
+            interceptorLock.lock()
+            defer { interceptorLock.unlock() }
+            _byteRouter = newValue
+        }
+    }
+
+    /// While a ZModem transfer owns the byte stream, keyboard input is
+    /// dropped — keystrokes would corrupt the protocol. Main-thread only.
+    var keyboardLocked = false
+
+    /// All keyboard/paste input funnels through here (SwiftTerm's
+    /// `MacLocalTerminalView` marks it `open` for exactly this interception).
+    override func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        if keyboardLocked { return }
+        super.send(source: source, data: data)
+    }
+
+    /// Per-session override of what the Backspace key sends (resolved from the
+    /// host's `backspaceBehavior` + the global default at connect time).
+    /// nil = terminal default (SwiftTerm sends DEL; kitty keyboard mode reports
+    /// the key event). Non-nil bytes are sent verbatim instead.
+    var backspaceWireBytes: [UInt8]?
+
+    /// Intercept Backspace at the key-command layer so all three explicit
+    /// behaviors — including VT220's ESC[3~, which SwiftTerm's boolean
+    /// `backspaceSendsControlH` cannot express — flow through one path.
+    /// Kitty keyboard enhancement mode is left alone: an app that requested
+    /// enhanced key reporting wants key identity, not a remapped byte.
+    override func doCommand(by selector: Selector) {
+        if selector == #selector(deleteBackward(_:)),
+           let bytes = backspaceWireBytes,
+           terminal.keyboardEnhancementFlags.isEmpty {
+            send(bytes)
+            return
+        }
+        super.doCommand(by: selector)
+    }
 
     /// The view currently driving the shared `NSColorPanel` (text-color picker).
     /// Tracked so a deallocating view only tears down the panel wiring if it is
@@ -55,6 +111,11 @@ final class HarborTerminalView: LocalProcessTerminalView {
     }
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
+        // ZModem transfer in progress: protocol bytes are consumed wholesale
+        // (kept off the screen and out of the recording sink on purpose).
+        if let router = byteRouter, router(slice) {
+            return
+        }
         super.dataReceived(slice: slice)
         dataInterceptor?(slice)
         if !sawOutput {
@@ -880,13 +941,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         guard let view = terminalView as? HarborTerminalView else { return }
         let sink = isRecording ? recordingSink : nil
         let detector = shouldFeedTOTPDetector ? totpDetector : nil
-        if sink == nil && detector == nil {
-            view.dataInterceptor = nil
-            return
-        }
-        view.dataInterceptor = { [weak sink, weak detector] slice in
+        // The ZModem detector always listens (rz/sz can run in any shell
+        // tab). It's a cheap byte-level state machine fed on SwiftTerm's
+        // serial I/O context; only an actual ZRQINIT hit hops to MainActor.
+        let zdetector = zmodemDetector
+        view.dataInterceptor = { [weak sink, weak detector, weak self] slice in
             detector?.feed(slice)
             sink?.write(slice)
+            if let hit = zdetector.feed(slice) {
+                Task { @MainActor [weak self] in
+                    self?.zmodemTriggered(hit.trigger, frame: hit.frame)
+                }
+            }
         }
     }
 
@@ -909,6 +975,163 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private func resetTOTPPrompt() {
         totpDetector.reset()
         totpPromptVisible = false
+    }
+
+    // MARK: - ZModem (rz/sz) transfers
+
+    /// Non-nil while a detected ZRQINIT frame awaits the user's choice.
+    @Published private(set) var zmodemRequest: ZmodemTrigger? = nil
+    /// One-line transfer status while running / briefly after finishing.
+    @Published private(set) var zmodemStatus: String? = nil
+
+    private var zmodemDetector = ZmodemDetector()
+    private var zmodemSession: ZmodemSession?
+    private var pendingZmodemFrame: Data? = nil
+    private var zmodemWatchdog: Task<Void, Never>? = nil
+    private var zmodemLastActivity = Date.distantPast
+
+    /// Called (hopped to MainActor) when the detector saw a complete ZRQINIT.
+    private func zmodemTriggered(_ trigger: ZmodemTrigger, frame: Data) {
+        guard state == .running, zmodemSession == nil, zmodemRequest == nil else { return }
+        pendingZmodemFrame = frame
+        zmodemRequest = trigger
+    }
+
+    /// User picked local files after a remote `rz` — start sending them.
+    func startZmodemUpload(files: [URL]) {
+        guard !files.isEmpty else { return }
+        startZmodem(role: .send(files: files))
+    }
+
+    /// User picked a local directory after a remote `sz` — receive into it.
+    func startZmodemDownload(to directory: URL) {
+        startZmodem(role: .receive(directory: directory))
+    }
+
+    /// Dismiss the detection banner without transferring.
+    func dismissZmodemRequest() {
+        zmodemRequest = nil
+        pendingZmodemFrame = nil
+        zmodemDetector.reset()
+    }
+
+    /// `sz -q` is indistinguishable from `rz` on the wire — let the user
+    /// flip the detected direction before picking files.
+    func switchZmodemDirection() {
+        guard let current = zmodemRequest else { return }
+        zmodemRequest = (current == .upload) ? .download : .upload
+    }
+
+    func cancelZmodemTransfer() {
+        zmodemSession?.cancel()
+    }
+
+    private func startZmodem(role: ZmodemRole) {
+        guard let view = terminalView as? HarborTerminalView,
+              let frame = pendingZmodemFrame else { return }
+        zmodemRequest = nil
+        pendingZmodemFrame = nil
+
+        let session = ZmodemSession(role: role)
+        zmodemSession = session
+        zmodemLastActivity = Date()
+
+        session.onSend = { [weak view] data in
+            view?.process.send(data: ArraySlice(data))
+        }
+        session.onEvent = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.handleZmodemEvent(event)
+            }
+        }
+        view.byteRouter = { [weak session] slice in
+            guard let session else { return false }
+            session.input(slice)
+            return true
+        }
+        view.keyboardLocked = true
+        zmodemStatus = L("ZModem 协商中…")
+
+        // Replay the captured ZRQINIT so the state machine doesn't sit out
+        // the peer's (5-10s) retransmission timer.
+        session.input(frame)
+        startZmodemWatchdog()
+    }
+
+    private func handleZmodemEvent(_ event: ZmodemSessionEvent) {
+        zmodemLastActivity = Date()
+        switch event {
+        case .progress(let p):
+            let pct = p.fileSize > 0 ? Int(Double(p.fileBytesTransferred) * 100 / Double(p.fileSize)) : 0
+            zmodemStatus = String(format: L("ZModem 传输中：%@（%lld/%lld，%lld%%）"),
+                                  p.fileName, p.fileIndex, p.fileCount, pct)
+        case .fileCompleted(let name, _):
+            zmodemStatus = String(format: L("ZModem 已传输：%@"), name)
+        case .phaseChanged(let phase):
+            switch phase {
+            case .completed:
+                zmodemStatus = L("ZModem 传输完成")
+                finishZmodem(restoreDelay: 3)
+            case .cancelled:
+                zmodemStatus = L("ZModem 已取消")
+                finishZmodem(restoreDelay: 2)
+            case .failed:
+                zmodemStatus = String(format: L("ZModem 传输失败：%@"),
+                                      Self.describeZmodemError(zmodemSession?.error))
+                finishZmodem(restoreDelay: 5)
+            default:
+                break
+            }
+        }
+    }
+
+    private static func describeZmodemError(_ error: ZmodemError?) -> String {
+        switch error {
+        case .cancelled: return L("已取消")
+        case .abortedByPeer: return L("对端中止")
+        case .protocolError(let m): return L("协议错误") + " (\(m))"
+        case .fileIO(let m): return L("文件读写失败") + " (\(m))"
+        case .tooManyErrors: return L("错误过多，已放弃")
+        case .fileTooLarge(let f): return String(format: L("文件超过 4GiB：%@"), f)
+        case nil: return ""
+        }
+    }
+
+    /// Tears down byte routing after a short grace period so the final status
+    /// line stays readable. Idempotent.
+    private func finishZmodem(restoreDelay: TimeInterval) {
+        zmodemWatchdog?.cancel()
+        zmodemWatchdog = nil
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(restoreDelay * 1_000_000_000))
+            guard let self else { return }
+            if let view = self.terminalView as? HarborTerminalView {
+                view.byteRouter = nil
+                view.keyboardLocked = false
+                // Nudge the shell prompt back onto a fresh line.
+                view.feed(text: "\r\n")
+            }
+            self.zmodemSession = nil
+            self.zmodemStatus = nil
+            self.zmodemDetector.reset()
+        }
+    }
+
+    /// Cancels a transfer that made no progress for 60s (dead peer, dropped
+    /// connection). Progress and phase events refresh `zmodemLastActivity`.
+    private func startZmodemWatchdog() {
+        zmodemWatchdog?.cancel()
+        zmodemWatchdog = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                guard let self, let session = self.zmodemSession else { return }
+                if !session.isActive { return }
+                if Date().timeIntervalSince(self.zmodemLastActivity) > 60 {
+                    session.cancel()
+                    return
+                }
+            }
+        }
     }
 
     /// Backstop for the `.connecting → .running` transition. SwiftTerm's
@@ -936,6 +1159,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if UserDefaults.standard.bool(forKey: "useMetalRenderer") {
             try? view.setUseMetal(true)
         }
+        view.backspaceWireBytes = resolvedBackspaceWireBytes()
         view.processDelegate = self
         view.onFirstOutput = { [weak self, weak view] in
             guard let self, let view, view === self.terminalView else { return }
@@ -954,6 +1178,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if UserDefaults.standard.bool(forKey: "useMetalRenderer") {
             try? view.setUseMetal(true)
         }
+        view.backspaceWireBytes = resolvedBackspaceWireBytes()
         view.processDelegate = self
         view.onFirstOutput = { [weak self, weak view] in
             guard let self, let view, view === self.terminalView else { return }
@@ -1006,6 +1231,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return copy
     }
 
+    /// Effective backspace wire bytes for a new view: the host's own choice
+    /// (when not `.auto`) beats the global default from Settings. Resolved at
+    /// connect time; `reconnect()` rebuilds the view so edits apply then.
+    /// Local shells use the global default (their synthetic host is `.auto`).
+    private func resolvedBackspaceWireBytes() -> [UInt8]? {
+        let behavior = SSHHost.BackspaceBehavior.resolve(
+            perHost: host.backspaceBehavior,
+            globalRawValue: UserDefaults.standard.string(
+                forKey: BackspacePreference.globalDefaultKey)
+        )
+        return behavior.wireBytes
+    }
+
 }
 
 // MARK: - LocalProcessTerminalViewDelegate
@@ -1019,16 +1257,24 @@ extension TerminalSession: @preconcurrency LocalProcessTerminalViewDelegate {
         guard source === terminalView else { return }
         guard customTitle == nil else { return }
         let trimmed = title.trimmingCharacters(in: .whitespaces)
-        self.title = trimmed.isEmpty ? host.displayName : trimmed
+        let next = trimmed.isEmpty ? host.displayName : trimmed
+        // Shells re-emit the SAME title on every precmd; @Published fires on
+        // assignment regardless of equality, and every fire repaints the tab
+        // strip — drop no-op updates at the source.
+        guard next != self.title else { return }
+        self.title = next
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
         guard source === terminalView else { return }
+        let next: String?
         if let raw = directory, let url = URL(string: raw), url.isFileURL {
-            currentDirectory = url.path
+            next = url.path
         } else {
-            currentDirectory = directory
+            next = directory
         }
+        guard next != currentDirectory else { return }
+        currentDirectory = next
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {

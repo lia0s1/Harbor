@@ -1,3 +1,9 @@
+// HARBOR-PATCH (vendored fork — keep this when merging upstream):
+//   CacheSignature and ShaperKey carry `fontCascade` (the font descriptor's
+//   cascade-list PS names via fontCascadeSignature) so changing only the CJK
+//   fallback font — same base font name and size — still invalidates the
+//   row/shaper caches. Upstream keys on fontName+fontSize alone.
+//
 #if os(macOS) || os(iOS) || os(visionOS)
 import Foundation
 #if canImport(os)
@@ -170,8 +176,50 @@ struct CacheSignature: Hashable {
     let cols: Int
     let fontName: String
     let fontSize: Double
+    /// PostScript names of the base font's descriptor cascade list (e.g. the
+    /// user's chosen CJK fallback). Two fonts can share fontName+size yet
+    /// shape differently once the cascade changes, so the row/shaper caches
+    /// must treat the cascade as part of the font identity.
+    let fontCascade: String
     let isAltBuffer: Bool
     let kittyStamp: KittyCacheStamp
+}
+
+/// Joined PostScript names of a font's cascade list, for cache identity.
+/// CoreText-based so it works identically for the view's NSFont/UIFont and
+/// for the CTFonts the shaper handles. Two fonts can share name+size yet
+/// shape differently once the descriptor cascade changes (e.g. the user's
+/// chosen CJK fallback), so caches must key on it.
+func fontCascadeSignature(_ font: CTFont) -> String {
+    let descriptor = CTFontCopyFontDescriptor(font)
+    let list = (CTFontDescriptorCopyAttribute(descriptor, kCTFontCascadeListAttribute) as? [CTFontDescriptor]) ?? []
+    return list.compactMap {
+        CTFontDescriptorCopyAttribute($0, kCTFontNameAttribute) as? String
+    }.joined(separator: ",")
+}
+
+/// Memo for `fontCascadeSignature`: the extraction does a CoreText descriptor
+/// round-trip per call, which matters because both consumers (the per-frame
+/// CacheSignature and the per-segment ShaperKey lookup) call it at render
+/// frequency. A font's cascade list is immutable for the life of the CTFont,
+/// and RETAINING the font here keeps its ObjectIdentifier unique — a deallocated
+/// font's address can never collide with a live memo entry, so identity hits
+/// are always correct. Bounded; a renderer only ever handles a handful of
+/// live fonts (one FontSet generation at a time).
+private final class FontCascadeSignatureMemo {
+    private var entries: [(font: CTFont, signature: String)] = []
+
+    func signature(for font: CTFont) -> String {
+        for entry in entries where entry.font === font {
+            return entry.signature
+        }
+        let signature = fontCascadeSignature(font)
+        entries.append((font, signature))
+        if entries.count > 16 {
+            entries.removeFirst(entries.count - 16)
+        }
+        return signature
+    }
 }
 
 final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
@@ -193,6 +241,9 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
     private let textureLoader: MTKTextureLoader
     private let bufferPool: BufferPool
     private let shaperCache = ShaperCache(maxEntries: 2048)
+    /// Memoized font-cascade signatures for the per-frame CacheSignature —
+    /// see FontCascadeSignatureMemo; extraction must not run per frame.
+    private let cascadeMemo = FontCascadeSignatureMemo()
     private let grayscaleAtlas: GlyphAtlas
     private let colorAtlas: GlyphAtlas
     private let rasterizer = CoreTextGlyphRasterizer()
@@ -602,6 +653,7 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
                                        cols: buffer.cols,
                                        fontName: terminalView.fontSet.normal.fontName,
                                        fontSize: Double(terminalView.fontSet.normal.pointSize),
+                                       fontCascade: cascadeMemo.signature(for: terminalView.fontSet.normal as CTFont),
                                        isAltBuffer: terminalView.terminal.isCurrentBufferAlternate,
                                        kittyStamp: kittyStamp)
         let signatureChanged = signature != cacheSignature
@@ -1709,6 +1761,7 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
     private struct ShaperKey: Hashable {
         let fontName: String
         let fontSize: CGFloat
+        let fontCascade: String
         let text: String
     }
 
@@ -1739,6 +1792,10 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         private let maxEntries: Int
         private var cache: [ShaperKey: ShaperRun] = [:]
         private var order: [ShaperKey] = []
+        /// Memoized per-font cascade signatures — the ShaperKey is built on
+        /// EVERY lookup (cache hits included), so the CoreText extraction
+        /// must happen once per live font, not once per segment per frame.
+        private let cascadeMemo = FontCascadeSignatureMemo()
 
         init(maxEntries: Int) {
             self.maxEntries = maxEntries
@@ -1750,6 +1807,7 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
             }
             let key = ShaperKey(fontName: CTFontCopyPostScriptName(font) as String,
                                 fontSize: CTFontGetSize(font),
+                                fontCascade: cascadeMemo.signature(for: font),
                                 text: text)
             if let cached = cache[key] {
                 return cached

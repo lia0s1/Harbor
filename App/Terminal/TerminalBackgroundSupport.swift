@@ -85,6 +85,12 @@ final class TerminalContainerView: NSView {
     /// Lazily created; only present while a background image is shown.
     private var imageView: NSImageView?
 
+    /// Lazily created; only present while the active THEME requests a frosted
+    /// background (`.harbortheme` backgroundOpacity/backgroundBlur) and the
+    /// user has no custom background overriding it. Holds the blur material;
+    /// its single subview tints it with the theme background color.
+    private var frostView: NSVisualEffectView?
+
     /// Decoded image cache keyed by path, so a re-apply that did NOT change the
     /// image (e.g. a live text-color drag, which fires apply() per tick) reuses
     /// the decoded `NSImage` instead of re-reading the file from disk each time.
@@ -120,6 +126,7 @@ final class TerminalContainerView: NSView {
         let image: NSImage? = background.wantsImage ? loadImage(at: background.imagePath) : nil
 
         if background.mode == .image, let image {
+            removeFrost()
             // The container itself becomes the OPAQUE base, painted with the
             // theme background. The image view above it draws at the clamped
             // opacity, so the effective backdrop = theme color blended with the
@@ -138,9 +145,24 @@ final class TerminalContainerView: NSView {
             terminal.wantsLayer = true
             terminal.layer?.isOpaque = false
             terminal.layer?.backgroundColor = NSColor.clear.cgColor
+        } else if background.mode == .theme, theme.usesFrostedBackground {
+            // Theme-driven frosted pane (`.harbortheme` backgroundOpacity /
+            // backgroundBlur): a blur material tinted with the theme's
+            // background sits behind a transparent terminal. Blending is
+            // .withinWindow — the pane frosts against the window's own
+            // background, not the desktop (the window itself stays opaque).
+            removeImage()
+            layer?.backgroundColor = nil
+            installFrost(theme: theme)
+            terminal.nativeBackgroundColor = .clear
+            terminal.nativeForegroundColor = background.foreground?.nsColor ?? theme.foreground.nsColor
+            terminal.wantsLayer = true
+            terminal.layer?.isOpaque = false
+            terminal.layer?.backgroundColor = NSColor.clear.cgColor
         } else {
             // No image: remove the layer and paint an opaque terminal background.
             removeImage()
+            removeFrost()
             layer?.backgroundColor = nil
             let bg: NSColor
             switch background.mode {
@@ -209,6 +231,52 @@ final class TerminalContainerView: NSView {
         imageView = nil
         cachedImage = nil
         cachedImagePath = nil
+    }
+
+    // MARK: - Frost layer (theme-driven)
+
+    /// Blur material + theme-tint overlay behind a transparent terminal,
+    /// layered exactly like the image view (below the terminal, above nothing
+    /// else — the container itself stays unpainted so the effect samples the
+    /// window background).
+    private func installFrost(theme: TerminalTheme) {
+        let view: NSVisualEffectView
+        let tint: NSView
+        if let existing = frostView, let existingTint = existing.subviews.first {
+            view = existing
+            tint = existingTint
+        } else {
+            view = NSVisualEffectView()
+            view.blendingMode = .withinWindow
+            view.state = .active
+            view.autoresizingMask = [.width, .height]
+            view.frame = bounds
+            tint = NSView()
+            tint.wantsLayer = true
+            tint.autoresizingMask = [.width, .height]
+            tint.frame = view.bounds
+            view.addSubview(tint)
+            let terminal = subviews.first { $0 is LocalProcessTerminalView }
+            addSubview(view, positioned: .below, relativeTo: terminal)
+            frostView = view
+        }
+        view.material = theme.isDark ? .underWindowBackground : .contentBackground
+        view.appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
+        tint.layer?.backgroundColor = theme.background.nsColor
+            .withAlphaComponent(CGFloat(theme.backgroundOpacity)).cgColor
+        if theme.backgroundBlur > 0 {
+            let filter = CIFilter(name: "CIGaussianBlur")
+            filter?.setValue(theme.backgroundBlur, forKey: kCIInputRadiusKey)
+            view.contentFilters = filter.map { [$0] } ?? []
+        } else {
+            view.contentFilters = []
+        }
+        raiseTerminalAboveImage()
+    }
+
+    private func removeFrost() {
+        frostView?.removeFromSuperview()
+        frostView = nil
     }
 
     /// Load an image from a path, returning nil if the file is missing or not a

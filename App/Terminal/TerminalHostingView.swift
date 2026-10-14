@@ -8,10 +8,23 @@ import SwiftTerm
 enum TerminalFontPreference {
     static let fontNameKey = "terminalFontName"
     static let fontSizeKey = "terminalFontSize"
+    /// Separate CJK (Chinese) font family; empty = system fallback chain.
+    static let cjkFontNameKey = "terminalCJKFontName"
     static let defaultFontName = "Menlo"
+    static let defaultCJKFontName = ""
     static let defaultFontSize: Double = 13.0
     static let minFontSize: Double = 9.0
     static let maxFontSize: Double = 32.0
+
+    /// Resolves the persisted font choices into the actual NSFont — primary
+    /// font for ASCII, with the chosen CJK font first in the cascade list.
+    static func resolveFont(defaults: UserDefaults = .standard) -> NSFont {
+        let rawSize = defaults.double(forKey: fontSizeKey)
+        let size = rawSize > 0 ? CGFloat(rawSize) : CGFloat(defaultFontSize)
+        let name = defaults.string(forKey: fontNameKey) ?? defaultFontName
+        let cjk = defaults.string(forKey: cjkFontNameKey) ?? defaultCJKFontName
+        return TerminalFontCascade.makeFont(name: name, size: size, cjkName: cjk)
+    }
 }
 
 /// Font zoom (⌘+/⌘−): persists to the shared UserDefaults keys so settings
@@ -31,12 +44,7 @@ extension LocalProcessTerminalView {
     }
 
     private func applyPersistedFont() {
-        let defaults = UserDefaults.standard
-        let size = defaults.double(forKey: TerminalFontPreference.fontSizeKey)
-        let resolved = size > 0 ? CGFloat(size) : CGFloat(TerminalFontPreference.defaultFontSize)
-        let name = defaults.string(forKey: TerminalFontPreference.fontNameKey) ?? TerminalFontPreference.defaultFontName
-        font = NSFont(name: name, size: resolved)
-            ?? NSFont.monospacedSystemFont(ofSize: resolved, weight: .regular)
+        font = TerminalFontPreference.resolveFont()
     }
 }
 
@@ -59,7 +67,12 @@ struct TerminalHostingView: NSViewRepresentable {
 
     @AppStorage(TerminalFontPreference.fontNameKey) private var terminalFontName = TerminalFontPreference.defaultFontName
     @AppStorage(TerminalFontPreference.fontSizeKey) private var terminalFontSize = TerminalFontPreference.defaultFontSize
+    @AppStorage(TerminalFontPreference.cjkFontNameKey) private var terminalCJKFontName = TerminalFontPreference.defaultCJKFontName
     @AppStorage("themeID") private var themeID = TerminalTheme.defaultThemeID
+    /// Bumped by TerminalThemeStore whenever file themes are (re)scanned, so a
+    /// re-imported or deleted .harbortheme re-applies even when the theme ID
+    /// itself did not change.
+    @AppStorage(TerminalThemeStore.catalogRevisionKey) private var themeCatalogRevision = 0
     @AppStorage("optionAsMeta") private var optionAsMeta = true
     @AppStorage(TerminalBackgroundPreference.storageKey) private var backgroundRaw = ""
 
@@ -67,9 +80,11 @@ struct TerminalHostingView: NSViewRepresentable {
         var wasSelected = false
         var lastTerminalView: ObjectIdentifier?
         var appliedThemeID: String?
+        var appliedThemeCatalogRevision = -1
         var appliedBackground: TerminalBackground?
         var appliedBackgroundRaw: String?
         var appliedFontName: String?
+        var appliedCJKFontName: String?
         var appliedFontSize: CGFloat = 0
         var appliedOptionAsMeta: Bool?
         /// Holds the session.$terminalView subscription so reconnects re-embed
@@ -103,17 +118,17 @@ struct TerminalHostingView: NSViewRepresentable {
                 let theme = TerminalTheme.theme(withID: themeID)
                 newTerminal.apply(theme: theme)
                 coordinator.appliedThemeID = themeID
-                // Font + optionAsMeta
-                let fontName = UserDefaults.standard.string(forKey: TerminalFontPreference.fontNameKey)
-                    ?? TerminalFontPreference.defaultFontName
-                let rawSize = UserDefaults.standard.double(forKey: TerminalFontPreference.fontSizeKey)
-                let size = rawSize > 0 ? CGFloat(rawSize) : CGFloat(TerminalFontPreference.defaultFontSize)
-                let font = NSFont(name: fontName, size: size)
-                    ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+                coordinator.appliedThemeCatalogRevision = UserDefaults.standard.integer(
+                    forKey: TerminalThemeStore.catalogRevisionKey)
+                // Font + optionAsMeta (cascaded: primary + optional CJK fallback)
+                let font = TerminalFontPreference.resolveFont()
                 newTerminal.font = font
                 newTerminal.optionAsMetaKey = UserDefaults.standard.bool(forKey: "optionAsMeta")
-                coordinator.appliedFontName = fontName
-                coordinator.appliedFontSize = size
+                coordinator.appliedFontName = UserDefaults.standard.string(forKey: TerminalFontPreference.fontNameKey)
+                    ?? TerminalFontPreference.defaultFontName
+                coordinator.appliedCJKFontName = UserDefaults.standard.string(forKey: TerminalFontPreference.cjkFontNameKey)
+                    ?? TerminalFontPreference.defaultCJKFontName
+                coordinator.appliedFontSize = font.pointSize
                 coordinator.appliedOptionAsMeta = UserDefaults.standard.bool(forKey: "optionAsMeta")
                 // Background
                 let bgRaw = UserDefaults.standard.string(
@@ -165,24 +180,34 @@ struct TerminalHostingView: NSViewRepresentable {
     }
 
     private func applyTheme(to terminal: LocalProcessTerminalView, coordinator: Coordinator, force: Bool) {
-        guard force || coordinator.appliedThemeID != themeID else { return }
+        let catalogChanged = coordinator.appliedThemeCatalogRevision != themeCatalogRevision
+        guard force || coordinator.appliedThemeID != themeID || catalogChanged else { return }
         terminal.apply(theme: TerminalTheme.theme(withID: themeID))
         coordinator.appliedThemeID = themeID
+        coordinator.appliedThemeCatalogRevision = themeCatalogRevision
         coordinator.appliedBackground = nil
+        // The container background derives from the theme (theme bg is the
+        // image-mode base color and the frost tint), so force its re-apply too.
+        coordinator.appliedBackgroundRaw = nil
     }
 
     private func applyAppearance(to terminal: LocalProcessTerminalView, coordinator: Coordinator) {
         let size = CGFloat(terminalFontSize)
         guard coordinator.appliedFontName != terminalFontName
+           || coordinator.appliedCJKFontName != terminalCJKFontName
            || coordinator.appliedFontSize != size
            || coordinator.appliedOptionAsMeta != optionAsMeta else { return }
-        let desired = NSFont(name: terminalFontName, size: size)
-            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-        if terminal.font.fontName != desired.fontName || terminal.font.pointSize != desired.pointSize {
+        let desired = TerminalFontCascade.makeFont(
+            name: terminalFontName, size: size, cjkName: terminalCJKFontName)
+        if terminal.font.fontName != desired.fontName
+            || terminal.font.pointSize != desired.pointSize
+            || TerminalFontCascade.cascadeSignature(of: terminal.font)
+                != TerminalFontCascade.cascadeSignature(of: desired) {
             terminal.font = desired
         }
         terminal.optionAsMetaKey = optionAsMeta
         coordinator.appliedFontName = terminalFontName
+        coordinator.appliedCJKFontName = terminalCJKFontName
         coordinator.appliedFontSize = size
         coordinator.appliedOptionAsMeta = optionAsMeta
     }
